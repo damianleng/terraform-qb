@@ -27,6 +27,39 @@ module "s3" {
   force_destroy = var.environment == "dev" ? true : false
 }
 
+module "lambda" {
+  source                    = "./modules/lambda"
+  environment               = var.environment
+  project                   = var.project
+  subnet_ids                = module.vpc.private_subnet_ids
+  lambda_security_group_id  = module.vpc.lambda_security_group_id
+  staging_bucket_arn        = module.s3.staging_bucket_arn
+  staging_bucket_name       = module.s3.staging_bucket_name
+  logs_bucket_arn           = module.s3.logs_bucket_arn
+  db_secret_arn             = module.rds.db_password_secret_arn
+  rds_endpoint              = module.rds.db_instance_endpoint
+  alert_email               = var.alert_email
+  qb_api_secret_arn         = var.qb_api_secret_arn
+}
+
+# DynamoDB table for Terraform state locking
+resource "aws_dynamodb_table" "terraform_locks" {
+  name         = "${var.project}-terraform-locks"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "${var.project}-terraform-locks"
+    Environment = var.environment
+    Project     = var.project
+  }
+}
+
 # module "iam" {
 #   source      = "./modules/iam"
 #   environment = var.environment
