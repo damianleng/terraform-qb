@@ -18,6 +18,7 @@ module "rds" {
   monitoring_interval   = var.environment == "prod" ? 30 : 60
   skip_final_snapshot   = var.environment == "dev" ? true : false
   backup_retention_days = var.environment == "prod" ? 30 : 7
+  deletion_protection   = var.environment == "prod" ? true : false
 }
 
 module "s3" {
