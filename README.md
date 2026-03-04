@@ -10,15 +10,24 @@ This project manages AWS infrastructure using Terraform with a modular approach 
 ├── variables.tf         # Root-level input variables
 ├── output.tf           # Root-level outputs
 ├── terraform.tf        # Provider and version configuration
+├── .gitignore          # Git ignore rules for Terraform
 └── modules/
     ├── vpc/            # VPC module
     │   ├── main.tf
     │   ├── variables.tf
     │   └── output.tf
-    └── rds/            # RDS module
+    ├── rds/            # RDS module
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── output.tf
+    ├── s3/             # S3 module
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    └── lambda/         # Lambda & Step Functions module
         ├── main.tf
         ├── variables.tf
-        └── output.tf
+        └── outputs.tf
 ```
 
 ## VPC Module
@@ -103,6 +112,100 @@ This project manages AWS infrastructure using Terraform with a modular approach 
 - `db_name` - Database name
 - `db_username` - Master username (sensitive)
 - `db_password_secret_arn` - Secrets Manager ARN for password
+
+## S3 Module
+
+### What It Creates
+- **4 S3 Buckets**:
+  - `{project}-{environment}-qb-staging` - QuickBooks raw data staging
+  - `{project}-{environment}-qb-logs` - ETL Lambda execution logs
+  - `{project}-{environment}-qb-terraform-state` - Terraform remote state
+  - `{project}-{environment}-qb-analytics-backups` - Pyplan dashboard backups
+- **KMS CMK**: Customer-managed key for S3 encryption with automatic key rotation
+- **Versioning**: Enabled on all buckets
+- **Encryption**: SSE-KMS with bucket keys enabled (reduces KMS API costs)
+- **Public Access**: Completely blocked on all buckets
+- **Logging**: Server access logs sent to logs bucket
+- **Lifecycle Policy**: Transition to Glacier after 90 days, expire after 2555 days (7 years for SOX compliance)
+
+### Module Inputs
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| environment | string | (required) | Environment name (dev/prod) |
+| project | string | (required) | Project name |
+| force_destroy | bool | false | Allow bucket deletion even if not empty |
+
+### Module Outputs
+- `staging_bucket_arn` - Staging bucket ARN
+- `staging_bucket_name` - Staging bucket name
+- `logs_bucket_arn` - Logs bucket ARN
+- `logs_bucket_name` - Logs bucket name
+- `terraform_state_bucket_arn` - Terraform state bucket ARN
+- `terraform_state_bucket_name` - Terraform state bucket name
+- `analytics_backups_bucket_arn` - Analytics backups bucket ARN
+- `analytics_backups_bucket_name` - Analytics backups bucket name
+- `kms_key_arn` - KMS key ARN for S3 encryption
+
+## Lambda Module
+
+### What It Creates
+- **3 Lambda Functions**:
+  - `{project}-{environment}-qb-extract` - Extracts data from QuickBooks API to S3 staging
+  - `{project}-{environment}-qb-transform` - Transforms and cleans data in S3
+  - `{project}-{environment}-qb-load` - Loads transformed data into RDS PostgreSQL
+- **3 IAM Roles**: Separate execution roles with least privilege policies
+- **3 CloudWatch Log Groups**: 90-day retention for Lambda execution logs
+- **Step Functions State Machine**: Orchestrates Extract → Transform → Load pipeline
+- **SNS Topic**: Email alerts for pipeline failures
+- **Step Functions IAM Role**: Permissions to invoke Lambdas and publish to SNS
+
+### Lambda Configuration
+| Setting | Value |
+|---------|-------|
+| Runtime | Python 3.12 |
+| Timeout | 600 seconds |
+| Memory | 1024 MB |
+| VPC | Deployed in private subnets |
+| Environment Variables | ENVIRONMENT, PROJECT, STAGING_BUCKET, DB_SECRET_ARN, RDS_ENDPOINT |
+
+### IAM Roles & Permissions
+| Role | Permissions |
+|------|-------------|
+| qb-extract-role | Secrets Manager read (QB API + DB), S3 write to staging, CloudWatch logs, VPC networking |
+| qb-transform-role | S3 read/write to staging, CloudWatch logs, VPC networking |
+| qb-load-role | S3 read from staging, Secrets Manager read (DB), CloudWatch logs, VPC networking |
+| etl-sfn-role | Lambda invoke (all 3 functions), SNS publish, CloudWatch logs |
+
+### Step Functions Pipeline
+- **Flow**: Extract → Transform → Load (sequential)
+- **Retry Logic**: 3 attempts, 30 second interval, backoff rate 2
+- **Error Handling**: On failure, sends SNS alert with error details and moves to Fail state
+- **State Passing**: Output of each step passed as input to next step
+
+### Module Inputs
+| Variable | Type | Description |
+|----------|------|-------------|
+| environment | string | Environment name (dev/prod) |
+| project | string | Project name |
+| subnet_ids | list(string) | Private subnet IDs for Lambda |
+| lambda_security_group_id | string | Security group ID for Lambda |
+| staging_bucket_arn | string | Staging bucket ARN |
+| staging_bucket_name | string | Staging bucket name |
+| logs_bucket_arn | string | Logs bucket ARN |
+| db_secret_arn | string | RDS password secret ARN |
+| rds_endpoint | string | RDS instance endpoint |
+| alert_email | string | Email for ETL failure alerts |
+| qb_api_secret_arn | string | QuickBooks API credentials secret ARN |
+
+### Module Outputs
+- `extract_function_arn` - Extract Lambda ARN
+- `transform_function_arn` - Transform Lambda ARN
+- `load_function_arn` - Load Lambda ARN
+- `extract_role_arn` - Extract IAM role ARN
+- `transform_role_arn` - Transform IAM role ARN
+- `load_role_arn` - Load IAM role ARN
+- `state_machine_arn` - Step Functions state machine ARN
+- `sns_topic_arn` - SNS topic ARN
 
 ## Usage
 

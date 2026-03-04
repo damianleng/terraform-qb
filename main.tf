@@ -20,15 +20,15 @@ module "rds" {
   backup_retention_days = var.environment == "prod" ? 30 : 7
 }
 
-# module "s3" {
-#   source      = "./modules/s3"
-#   environment = var.environment
-#   project     = var.project
-# }
+module "s3" {
+  source        = "./modules/s3"
+  environment   = var.environment
+  project       = var.project
+  force_destroy = var.environment == "dev" ? true : false
+}
 
 # module "iam" {
 #   source      = "./modules/iam"
 #   environment = var.environment
 #   project     = var.project
 # }
-
