@@ -14,3 +14,13 @@ variable "project" {
   type        = string
   default     = "qb-financial-warehouse"
 }
+
+variable "alert_email" {
+  description = "Email address for ETL alerts"
+  type        = string
+}
+
+variable "qb_api_secret_arn" {
+  description = "ARN of the QuickBooks API credentials secret in Secrets Manager"
+  type        = string
+}

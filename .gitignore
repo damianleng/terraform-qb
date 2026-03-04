@@ -35,3 +35,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Lambda build artifacts
+modules/lambda/*.zip

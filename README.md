@@ -216,17 +216,23 @@ terraform init
 
 ### Plan Changes
 ```bash
-terraform plan -var="environment=dev"
+terraform plan -var-file="environments/dev.tfvars"
 ```
 
 ### Apply Configuration
 ```bash
-terraform apply -var="environment=dev"
+terraform apply -var-file="environments/dev.tfvars"
 ```
 
 ### Destroy Infrastructure
 ```bash
-terraform destroy -var="environment=dev"
+terraform destroy -var-file="environments/dev.tfvars"
+```
+
+### Check AWS Profile
+```bash
+aws sts get-caller-identity
+echo $AWS_PROFILE
 ```
 
 ## Variables
@@ -235,7 +241,23 @@ terraform destroy -var="environment=dev"
 - `environment` - Environment name (required)
 - `aws_region` - AWS region (default: us-east-1)
 - `project` - Project name (default: qb-financial-warehouse)
+- `alert_email` - Email address for ETL failure alerts (required)
+- `qb_api_secret_arn` - QuickBooks API credentials secret ARN (required)
+
+### Configuration Files
+- `environments/dev.tfvars` - Development environment variables
+- `environments/prod.tfvars` - Production environment variables (when ready)
 
 ## Requirements
 - Terraform >= 1.2
 - AWS Provider ~> 5.92
+- AWS CLI configured with valid credentials
+- Personal AWS account for testing
+
+## Additional Documentation
+- `personal_testing.md` - Step-by-step guide for personal AWS testing
+- `environments/dev.tfvars` - Development configuration with placeholder values
+
+## Additional Documentation
+- `personal_testing.md` - Step-by-step guide for personal AWS testing
+- `environments/dev.tfvars` - Development configuration with placeholder values
