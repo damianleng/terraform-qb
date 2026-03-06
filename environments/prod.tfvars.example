@@ -1,0 +1,13 @@
+environment = "prod"
+project     = "qb-financial-warehouse"
+aws_region  = "us-east-1"
+
+# Email for SNS alerts
+alert_email = "your-email@example.com"
+
+# ARN of QuickBooks API secret in Secrets Manager
+qb_api_secret_arn = "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:your-qb-secret"
+
+# GitHub OIDC configuration
+github_repo   = "damianleng/terraform-qb"
+github_branch = "main"

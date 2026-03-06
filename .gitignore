@@ -6,6 +6,10 @@
 *.tfvars
 *.tfvars.json
 
+# Environment-specific tfvars (use .example templates)
+environments/*.tfvars
+!environments/*.tfvars.example
+
 # Crash log files
 crash.log
 crash.*.log
