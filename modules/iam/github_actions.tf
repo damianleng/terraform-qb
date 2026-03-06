@@ -142,6 +142,7 @@ resource "aws_iam_policy" "github_actions" {
         Effect = "Allow"
         Action = [
           "dynamodb:DescribeTable",
+          "dynamodb:DescribeContinuousBackups",
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:DeleteItem"
