@@ -13,7 +13,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 # GitHub Actions IAM Role
 resource "aws_iam_role" "github_actions" {
-  name = "${var.project}-github-actions-role"
+  name = "qb-financial-warehouse-github-actions-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -43,7 +43,7 @@ resource "aws_iam_role" "github_actions" {
 
 # GitHub Actions Policy
 resource "aws_iam_policy" "github_actions" {
-  name        = "${var.project}-github-actions-policy"
+  name        = "qb-financial-warehouse-github-actions-policy"
   description = "Policy for GitHub Actions to manage Terraform infrastructure"
 
   policy = jsonencode({
