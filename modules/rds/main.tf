@@ -28,7 +28,7 @@ resource "aws_kms_alias" "rds" {
 resource "aws_secretsmanager_secret" "db_password" {
   name        = "${var.project}-${var.environment}-rds-password"
   description = "RDS master password for ${var.environment}"
-  
+
   recovery_window_in_days = 0
 
   tags = {
@@ -126,12 +126,12 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids = [var.security_group_id]
   parameter_group_name   = aws_db_parameter_group.main.name
 
-  multi_az               = var.multi_az
-  publicly_accessible    = false
-  deletion_protection    = var.deletion_protection
-  skip_final_snapshot    = var.skip_final_snapshot
+  multi_az                  = var.multi_az
+  publicly_accessible       = false
+  deletion_protection       = var.deletion_protection
+  skip_final_snapshot       = var.skip_final_snapshot
   final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.project}-${var.environment}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
-  copy_tags_to_snapshot = true
+  copy_tags_to_snapshot     = true
 
   backup_retention_period = var.backup_retention_days
   backup_window           = var.backup_window
@@ -141,7 +141,7 @@ resource "aws_db_instance" "main" {
   monitoring_interval             = var.monitoring_interval
   monitoring_role_arn             = aws_iam_role.rds_monitoring.arn
 
-  performance_insights_enabled    = true
+  performance_insights_enabled          = true
   performance_insights_retention_period = 7
 
   tags = {

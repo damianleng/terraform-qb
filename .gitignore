@@ -6,6 +6,8 @@
 *.tfvars
 *.tfvars.json
 
+# Keep example templates in repo, actual tfvars are safe to commit (no secrets)
+
 # Crash log files
 crash.log
 crash.*.log
