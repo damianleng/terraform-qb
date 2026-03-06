@@ -10,10 +10,10 @@ terraform {
 
   # Uncomment after first successful deployment
   backend "s3" {
-    bucket         = "qb-financial-warehouse-dev-qb-terraform-state"
-    key            = "terraform.tfstate"
-    region         = "us-east-1"
-    use_lockfile   = true
-    encrypt        = true
+    bucket       = "qb-financial-warehouse-dev-qb-terraform-state"
+    key          = "terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
