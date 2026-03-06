@@ -6,9 +6,7 @@
 *.tfvars
 *.tfvars.json
 
-# Environment-specific tfvars (use .example templates)
-environments/*.tfvars
-!environments/*.tfvars.example
+# Keep example templates in repo, actual tfvars are safe to commit (no secrets)
 
 # Crash log files
 crash.log
