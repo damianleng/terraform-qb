@@ -141,12 +141,7 @@ resource "aws_iam_policy" "github_actions" {
         Sid    = "DynamoDBStateLocking"
         Effect = "Allow"
         Action = [
-          "dynamodb:DescribeTable",
-          "dynamodb:DescribeContinuousBackups",
-          "dynamodb:DescribeTimeToLive",
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:DeleteItem"
+          "dynamodb:*"
         ]
         Resource = "arn:aws:dynamodb:*:*:table/qb-financial-warehouse-terraform-locks"
       },
