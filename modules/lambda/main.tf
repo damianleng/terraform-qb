@@ -313,11 +313,11 @@ resource "aws_lambda_function" "extract" {
 
   environment {
     variables = {
-      ENVIRONMENT     = var.environment
-      PROJECT         = var.project
-      STAGING_BUCKET  = var.staging_bucket_name
-      DB_SECRET_ARN   = var.db_secret_arn
-      RDS_ENDPOINT    = var.rds_endpoint
+      ENVIRONMENT    = var.environment
+      PROJECT        = var.project
+      STAGING_BUCKET = var.staging_bucket_name
+      DB_SECRET_ARN  = var.db_secret_arn
+      RDS_ENDPOINT   = var.rds_endpoint
     }
   }
 
@@ -373,11 +373,11 @@ resource "aws_lambda_function" "transform" {
 
   environment {
     variables = {
-      ENVIRONMENT     = var.environment
-      PROJECT         = var.project
-      STAGING_BUCKET  = var.staging_bucket_name
-      DB_SECRET_ARN   = var.db_secret_arn
-      RDS_ENDPOINT    = var.rds_endpoint
+      ENVIRONMENT    = var.environment
+      PROJECT        = var.project
+      STAGING_BUCKET = var.staging_bucket_name
+      DB_SECRET_ARN  = var.db_secret_arn
+      RDS_ENDPOINT   = var.rds_endpoint
     }
   }
 
@@ -434,11 +434,11 @@ resource "aws_lambda_function" "load" {
 
   environment {
     variables = {
-      ENVIRONMENT     = var.environment
-      PROJECT         = var.project
-      STAGING_BUCKET  = var.staging_bucket_name
-      DB_SECRET_ARN   = var.db_secret_arn
-      RDS_ENDPOINT    = var.rds_endpoint
+      ENVIRONMENT    = var.environment
+      PROJECT        = var.project
+      STAGING_BUCKET = var.staging_bucket_name
+      DB_SECRET_ARN  = var.db_secret_arn
+      RDS_ENDPOINT   = var.rds_endpoint
     }
   }
 
@@ -629,7 +629,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
         Type     = "Task"
         Resource = "arn:aws:states:::sns:publish"
         Parameters = {
-          "TopicArn" = aws_sns_topic.etl_alerts.arn
+          "TopicArn"  = aws_sns_topic.etl_alerts.arn
           "Message.$" = "States.Format('ETL Pipeline Failed. Error: {}', $.error.Cause)"
           "Subject"   = "ETL Pipeline Failure Alert"
         }

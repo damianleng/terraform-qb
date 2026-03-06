@@ -160,7 +160,7 @@ resource "aws_route_table" "database" {
 resource "aws_route_table_association" "database" {
   count          = 2
   subnet_id      = aws_subnet.database[count.index].id
-  route_table_id = aws_route_table.database.id  # ← own route table, no routes
+  route_table_id = aws_route_table.database.id # ← own route table, no routes
 }
 
 resource "aws_route" "private_nat" {
