@@ -56,6 +56,43 @@ resource "aws_s3_bucket_public_access_block" "staging" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_policy" "staging" {
+  bucket = aws_s3_bucket.staging.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyUnencryptedObjectUploads"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.staging.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      },
+      {
+        Sid    = "DenyInsecureTransport"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.staging.arn,
+          "${aws_s3_bucket.staging.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_s3_bucket_logging" "staging" {
   bucket = aws_s3_bucket.staging.id
 
@@ -124,6 +161,43 @@ resource "aws_s3_bucket_public_access_block" "logs" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_policy" "logs" {
+  bucket = aws_s3_bucket.logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyUnencryptedObjectUploads"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.logs.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      },
+      {
+        Sid    = "DenyInsecureTransport"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.logs.arn,
+          "${aws_s3_bucket.logs.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "logs" {
   bucket = aws_s3_bucket.logs.id
 
@@ -183,6 +257,37 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowUserAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::876594438266:user/cloud-admin-damian"
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.terraform_state.arn}/*"
+      }
+    ]
+  })
+}
+
+# KMS key policy to allow user
+resource "aws_kms_grant" "terraform_state" {
+  name              = "terraform-state-user-grant"
+  key_id            = aws_kms_key.s3.id
+  grantee_principal = "arn:aws:iam::876594438266:user/cloud-admin-damian"
+  operations        = ["Encrypt", "Decrypt", "GenerateDataKey"]
 }
 
 resource "aws_s3_bucket_logging" "terraform_state" {
@@ -247,6 +352,43 @@ resource "aws_s3_bucket_public_access_block" "analytics_backups" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "analytics_backups" {
+  bucket = aws_s3_bucket.analytics_backups.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyUnencryptedObjectUploads"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.analytics_backups.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      },
+      {
+        Sid    = "DenyInsecureTransport"
+        Effect = "Deny"
+        Principal = "*"
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.analytics_backups.arn,
+          "${aws_s3_bucket.analytics_backups.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_s3_bucket_logging" "analytics_backups" {

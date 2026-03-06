@@ -33,3 +33,8 @@ output "db_password_secret_arn" {
   description = "ARN of the Secrets Manager secret containing the database password"
   value       = aws_secretsmanager_secret.db_password.arn
 }
+
+output "rds_kms_key_arn" {
+  description = "ARN of the KMS key used for RDS encryption"
+  value       = aws_kms_key.rds.arn
+}

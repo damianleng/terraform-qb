@@ -104,6 +104,14 @@ This project manages AWS infrastructure using Terraform with a modular approach 
 | deletion_protection | bool | true | Enable deletion protection |
 | skip_final_snapshot | bool | false | Skip final snapshot on deletion |
 
+### RDS Security
+- **KMS Encryption**: Customer-managed key for storage encryption with automatic rotation
+- **Secrets Manager**: Auto-generated password stored securely
+- **Enhanced Monitoring**: OS-level metrics sent to CloudWatch
+- **Performance Insights**: Enabled for performance analysis
+- **Deletion Protection**: Enabled on prod, disabled on dev
+- **Backup Strategy**: Automated daily backups with 7-day retention (dev) or 30-day (prod)
+
 ### Module Outputs
 - `db_instance_id` - RDS instance ID
 - `db_instance_endpoint` - Connection endpoint
@@ -112,8 +120,21 @@ This project manages AWS infrastructure using Terraform with a modular approach 
 - `db_name` - Database name
 - `db_username` - Master username (sensitive)
 - `db_password_secret_arn` - Secrets Manager ARN for password
+- `rds_kms_key_arn` - ARN of the KMS key used for RDS encryption
+| monitoring_interval | number | 60 | Enhanced monitoring interval |
+| backup_window | string | 03:00-04:00 | Backup window (UTC) |
+| maintenance_window | string | sun:04:00-sun:05:00 | Maintenance window (UTC) |
+| deletion_protection | bool | true | Enable deletion protection |
+| skip_final_snapshot | bool | false | Skip final snapshot on deletion |
 
-## S3 Module
+### Module Outputs
+- `db_instance_id` - RDS instance ID
+- `db_instance_endpoint` - Connection endpoint
+- `db_instance_address` - Database address
+- `db_instance_port` - Database port
+- `db_name` - Database name
+- `db_username` - Master username (sensitive)
+- `db_password_secret_arn` - Secrets Manager ARN for password
 
 ### What It Creates
 - **4 S3 Buckets**:
@@ -145,6 +166,15 @@ This project manages AWS infrastructure using Terraform with a modular approach 
 - `analytics_backups_bucket_arn` - Analytics backups bucket ARN
 - `analytics_backups_bucket_name` - Analytics backups bucket name
 - `kms_key_arn` - KMS key ARN for S3 encryption
+
+### S3 Security
+- **KMS Encryption**: Customer-managed key for all buckets with automatic rotation
+- **Bucket Policies**: Deny unencrypted uploads and insecure transport (HTTPS only)
+- **Public Access**: Completely blocked on all buckets
+- **Versioning**: Enabled for data recovery
+- **Bucket Keys**: Enabled to reduce KMS API calls and costs
+- **Server Logging**: Access logs sent to dedicated logs bucket
+- **Lifecycle Management**: Automatic archival to Glacier after 90 days, expiration after 2555 days (SOX compliance)
 
 ## Lambda Module
 
@@ -206,6 +236,48 @@ This project manages AWS infrastructure using Terraform with a modular approach 
 - `load_role_arn` - Load IAM role ARN
 - `state_machine_arn` - Step Functions state machine ARN
 - `sns_topic_arn` - SNS topic ARN
+
+## IAM Module
+
+### What It Creates
+- **KMS Key for CloudTrail** - Customer-managed key with automatic rotation for encrypting API logs
+- **CloudTrail** - Multi-region API logging with log file validation enabled
+- **S3 Bucket Policy** - Allows CloudTrail to write encrypted logs, denies unencrypted transport
+- **IAM Password Policy** - Enforces strong passwords across all IAM users
+- **IAM Access Analyzer** - Scans account for external resource access
+- **MFA Enforcement Policy** - Denies all actions without MFA (except MFA setup)
+
+### Password Policy Requirements
+- Minimum 14 characters
+- Requires uppercase, lowercase, numbers, and symbols
+- 90-day expiration
+- 24-key reuse prevention
+- Users can change their own password
+
+### CloudTrail Configuration
+- Multi-region trail captures all API calls
+- Log file validation enabled for integrity checking
+- Logs encrypted with customer-managed KMS key
+- Stored in S3 with HTTPS-only access
+
+### Module Inputs
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| environment | string | (required) | Environment name (dev/prod) |
+| project | string | (required) | Project name |
+| cloudtrail_s3_bucket_name | string | (required) | S3 bucket for CloudTrail logs |
+| enable_access_analyzer | bool | true | Enable IAM Access Analyzer |
+| password_min_length | number | 14 | Minimum password length |
+| password_require_symbols | bool | true | Require symbols in password |
+| password_require_numbers | bool | true | Require numbers in password |
+| password_require_uppercase | bool | true | Require uppercase in password |
+| password_require_lowercase | bool | true | Require lowercase in password |
+| password_max_age | number | 90 | Password expiration in days |
+
+### Module Outputs
+- `cloudtrail_arn` - CloudTrail ARN
+- `cloudtrail_kms_key_arn` - KMS key ARN for CloudTrail encryption
+- `access_analyzer_arn` - IAM Access Analyzer ARN
 
 ## Usage
 

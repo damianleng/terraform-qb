@@ -1,11 +1,35 @@
 resource "random_password" "master" {
-  length  = 16
-  special = true
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+  min_upper        = 2
+  min_lower        = 2
+  min_numeric      = 2
+  min_special      = 2
+}
+
+resource "aws_kms_key" "rds" {
+  description             = "KMS key for RDS encryption"
+  deletion_window_in_days = 10
+  enable_key_rotation     = true
+
+  tags = {
+    Name        = "${var.project}-${var.environment}-rds-kms"
+    Environment = var.environment
+    Project     = var.project
+  }
+}
+
+resource "aws_kms_alias" "rds" {
+  name          = "alias/${var.project}-${var.environment}-rds"
+  target_key_id = aws_kms_key.rds.key_id
 }
 
 resource "aws_secretsmanager_secret" "db_password" {
   name        = "${var.project}-${var.environment}-rds-password"
   description = "RDS master password for ${var.environment}"
+  
+  recovery_window_in_days = 0
 
   tags = {
     Name        = "${var.project}-${var.environment}-rds-password"
@@ -14,8 +38,15 @@ resource "aws_secretsmanager_secret" "db_password" {
 }
 
 resource "aws_secretsmanager_secret_version" "db_password" {
-  secret_id     = aws_secretsmanager_secret.db_password.id
-  secret_string = random_password.master.result
+  secret_id = aws_secretsmanager_secret.db_password.id
+  secret_string = jsonencode({
+    username = var.db_username
+    password = random_password.master.result
+    engine   = "postgres"
+    host     = aws_db_instance.main.address
+    port     = 5432
+    dbname   = var.db_name
+  })
 }
 
 resource "aws_db_subnet_group" "main" {
@@ -85,6 +116,7 @@ resource "aws_db_instance" "main" {
   max_allocated_storage = var.max_allocated_storage
   storage_type          = "gp3"
   storage_encrypted     = true
+  kms_key_id            = aws_kms_key.rds.arn
 
   db_name  = var.db_name
   username = var.db_username
