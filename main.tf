@@ -43,7 +43,7 @@ module "lambda" {
   alert_email              = var.alert_email
   qb_api_secret_arn        = var.qb_api_secret_arn
   rds_identifier           = module.rds.db_instance_id
-  aws_region = var.aws_region
+  aws_region               = var.aws_region
 }
 
 
