@@ -66,7 +66,7 @@ jobs:
             -backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=qb-financial-warehouse-terraform-locks" \
+            -backend-config="dynamodb_table=qb-financial-warehouse-dev-terraform-locks" \
             -backend-config="encrypt=true"
 
       - name: Terraform Plan
@@ -124,7 +124,7 @@ jobs:
             -backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=qb-financial-warehouse-terraform-locks" \
+            -backend-config="dynamodb_table=qb-financial-warehouse-dev-terraform-locks" \
             -backend-config="encrypt=true"
 
       - name: Terraform Apply
@@ -162,7 +162,7 @@ jobs:
             -backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=qb-financial-warehouse-terraform-locks" \
+            -backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks" \
             -backend-config="encrypt=true"
 
       - name: Terraform Plan
@@ -201,7 +201,7 @@ jobs:
             -backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=qb-financial-warehouse-terraform-locks" \
+            -backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks" \
             -backend-config="encrypt=true"
 
       - name: Terraform Apply

@@ -1,7 +1,7 @@
 # KMS key for CloudTrail
 resource "aws_kms_key" "cloudtrail" {
   description             = "KMS key for CloudTrail log encryption"
-  deletion_window_in_days = 10
+  deletion_window_in_days = 30
   enable_key_rotation     = true
 
   policy = jsonencode({
@@ -23,7 +23,7 @@ resource "aws_kms_key" "cloudtrail" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action = [
-          "kms:GenerateDataKey",
+          "kms:GenerateDataKey*",
           "kms:Decrypt"
         ]
         Resource = "*"
@@ -58,7 +58,7 @@ resource "aws_iam_account_password_policy" "strict" {
   hard_expiry                    = false
 }
 
-# IAM Enforce IAM Policy
+# MFA Enforcement Policy
 resource "aws_iam_policy" "enforce_mfa" {
   name        = "${var.project}-${var.environment}-enforce-mfa"
   description = "Deny all actions except MFA setup if MFA not enabled"
@@ -87,6 +87,16 @@ resource "aws_iam_policy" "enforce_mfa" {
       }
     ]
   })
+}
+
+# IAM Group with MFA enforcement
+resource "aws_iam_group" "mfa_required" {
+  name = "${var.project}-${var.environment}-mfa-required"
+}
+
+resource "aws_iam_group_policy_attachment" "enforce_mfa" {
+  group      = aws_iam_group.mfa_required.name
+  policy_arn = aws_iam_policy.enforce_mfa.arn
 }
 
 # CloudTrail for API logging

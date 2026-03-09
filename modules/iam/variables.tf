@@ -54,15 +54,3 @@ variable "password_max_age" {
   type        = number
   default     = 90
 }
-
-variable "github_repo" {
-  description = "GitHub repository for OIDC trust"
-  type        = string
-  default     = "damianleng/terraform-qb"
-}
-
-variable "github_branch" {
-  description = "GitHub branch for OIDC trust"
-  type        = string
-  default     = "main"
-}

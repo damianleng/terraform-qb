@@ -12,7 +12,7 @@ terraform {
     bucket         = "qb-financial-warehouse-dev-qb-terraform-state"
     key            = "terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "qb-financial-warehouse-terraform-locks"
+    dynamodb_table = "qb-financial-warehouse-dev-terraform-locks"
     encrypt        = true
   }
 }

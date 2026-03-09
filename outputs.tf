@@ -27,8 +27,3 @@ output "sns_topic_arn" {
   description = "ARN of the SNS topic for alerts"
   value       = module.lambda.sns_topic_arn
 }
-
-output "github_actions_role_arn" {
-  description = "ARN of the GitHub Actions IAM role"
-  value       = module.iam.github_actions_role_arn
-}
