@@ -18,16 +18,6 @@ output "logs_bucket_name" {
   value       = aws_s3_bucket.logs.id
 }
 
-output "terraform_state_bucket_arn" {
-  description = "ARN of the Terraform state bucket"
-  value       = aws_s3_bucket.terraform_state.arn
-}
-
-output "terraform_state_bucket_name" {
-  description = "Name of the Terraform state bucket"
-  value       = aws_s3_bucket.terraform_state.id
-}
-
 output "analytics_backups_bucket_arn" {
   description = "ARN of the analytics backups bucket"
   value       = aws_s3_bucket.analytics_backups.arn

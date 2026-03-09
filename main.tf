@@ -25,7 +25,7 @@ module "s3" {
   source        = "./modules/s3"
   environment   = var.environment
   project       = var.project
-  force_destroy = var.environment == "dev" ? true : false
+  force_destroy = false
 }
 
 module "lambda" {
@@ -43,23 +43,6 @@ module "lambda" {
   qb_api_secret_arn        = var.qb_api_secret_arn
 }
 
-# DynamoDB table for Terraform state locking
-resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "${var.project}-terraform-locks"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  tags = {
-    Name        = "${var.project}-terraform-locks"
-    Environment = var.environment
-    Project     = var.project
-  }
-}
 
 module "iam" {
   source                    = "./modules/iam"
