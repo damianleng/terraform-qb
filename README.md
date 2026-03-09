@@ -467,4 +467,4 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 - `CLAUDE.md` — Full project context for AI-assisted development
 - `personal_testing.md` — Step-by-step guide for personal AWS testing
 - `environments/dev.tfvars.example` — Dev configuration template
-- `environments/prod.tfvars.example` — Prod configuration template
+- `environments/prod.tfvars.example` — Prod configuration template 
