@@ -24,3 +24,9 @@ variable "qb_api_secret_arn" {
   description = "ARN of the QuickBooks API credentials secret in Secrets Manager"
   type        = string
 }
+
+variable "monthly_budget_limit" {
+  description = "Monthly AWS budget limit in USD"
+  type        = string
+  default     = "50"
+}

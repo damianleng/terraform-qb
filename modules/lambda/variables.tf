@@ -52,3 +52,8 @@ variable "qb_api_secret_arn" {
   description = "ARN of the QuickBooks API credentials secret in Secrets Manager"
   type        = string
 }
+
+variable "rds_identifier" {
+  description = "RDS instance identifier for dashboard metrics"
+  type        = string
+}

@@ -40,3 +40,6 @@ Thumbs.db
 
 # Lambda build artifacts
 modules/lambda/*.zip
+
+# CLAUDE.MD
+CLAUDE.MD

@@ -100,3 +100,8 @@ variable "skip_final_snapshot" {
   type        = bool
   default     = false
 }
+
+variable "sns_topic_arn" {
+  description = "SNS topic ARN for CloudWatch alarm notifications"
+  type        = string
+}
