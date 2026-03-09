@@ -333,3 +333,129 @@ echo $AWS_PROFILE
 ## Additional Documentation
 - `personal_testing.md` - Step-by-step guide for personal AWS testing
 - `environments/dev.tfvars` - Development configuration with placeholder values
+
+
+## GitHub Actions CI/CD Pipeline
+
+### Workflow Overview
+The project includes automated CI/CD with GitHub Actions for dev and prod deployments.
+
+**Workflow Triggers:**
+- Push to `main` branch - Runs all jobs (check, plan dev, apply dev, plan prod, apply prod)
+- Pull request to `main` - Runs check and plan jobs only (no apply)
+- Feature branches - No workflow triggers
+
+**Jobs:**
+1. `terraform-check` - Format validation and syntax check
+2. `terraform-plan-dev` - Plans dev changes, posts to PR comment
+3. `terraform-apply-dev` - Auto-applies dev on main push
+4. `terraform-plan-prod` - Plans prod changes after dev apply
+5. `terraform-apply-prod` - Requires manual approval before applying prod
+
+### Authentication
+- Uses GitHub OIDC provider for AWS authentication (no static keys)
+- IAM role: `qb-financial-warehouse-github-actions-role`
+- Restricted to specific GitHub repo and branch
+
+### Required GitHub Secrets
+- `AWS_ACCOUNT_ID` - AWS account ID
+- `AWS_REGION` - AWS region (default: us-east-1)
+
+### Required GitHub Environment
+- `production` - Manual approval required before prod apply
+
+## Migrating to Client Repository
+
+When deploying to a client's GitHub repo and AWS account, update these locations:
+
+### 1. GitHub Actions Workflow (`.github/workflows/terraform.yml`)
+```yaml
+# Update AWS account ID in role-to-assume
+role-to-assume: arn:aws:iam::CLIENT_ACCOUNT_ID:role/qb-financial-warehouse-github-actions-role
+
+# Update AWS region if different
+aws-region: us-east-1  # or client's region
+
+# Update S3 bucket names for backend
+-backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state"
+-backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state"
+
+# Update DynamoDB table name if different
+-backend-config="dynamodb_table=qb-financial-warehouse-terraform-locks"
+```
+
+### 2. IAM Module (`modules/iam/github_actions.tf`)
+```hcl
+# Update GitHub repo
+variable "github_repo" {
+  default = "client-org/client-repo"  # Change to client repo
+}
+
+# Update GitHub branch if not main
+variable "github_branch" {
+  default = "main"  # or client's branch
+}
+
+# Update AWS account ID in trust policy
+grantee_principal = "arn:aws:iam::CLIENT_ACCOUNT_ID:user/cloud-admin-damian"
+```
+
+### 3. Environment Variables (`environments/dev.tfvars`, `environments/prod.tfvars`)
+```hcl
+alert_email       = "client-email@example.com"
+qb_api_secret_arn = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
+github_repo       = "client-org/client-repo"
+github_branch     = "main"  # or client's branch
+```
+
+### 4. GitHub Actions Secrets (Repository Settings)
+- `AWS_ACCOUNT_ID` - Set to client's AWS account ID
+- `AWS_REGION` - Set to client's AWS region
+
+### 5. AWS Manual Setup (Client Account)
+Create these resources manually in the client's AWS account:
+
+```bash
+# Create dev state bucket
+aws s3 mb s3://qb-financial-warehouse-dev-qb-terraform-state --region us-east-1
+aws s3api put-bucket-versioning --bucket qb-financial-warehouse-dev-qb-terraform-state --versioning-configuration Status=Enabled --region us-east-1
+
+# Create prod state bucket
+aws s3 mb s3://qb-financial-warehouse-prod-qb-terraform-state --region us-east-1
+aws s3api put-bucket-versioning --bucket qb-financial-warehouse-prod-qb-terraform-state --versioning-configuration Status=Enabled --region us-east-1
+
+# Create DynamoDB lock table (shared between dev and prod)
+aws dynamodb create-table \
+  --table-name qb-financial-warehouse-terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region us-east-1
+```
+
+### 6. GitHub OIDC Provider (Client Account)
+If not already configured, create the OIDC provider:
+
+```bash
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 \
+  --region us-east-1
+```
+
+### 7. IAM Role for GitHub Actions (Client Account)
+The role `qb-financial-warehouse-github-actions-role` is created by Terraform. Ensure it exists and has proper trust policy for the client's GitHub repo.
+
+### Summary of Changes
+| Item | Location | Change |
+|------|----------|--------|
+| AWS Account ID | `.github/workflows/terraform.yml`, `modules/iam/github_actions.tf` | Update to client account |
+| AWS Region | `.github/workflows/terraform.yml`, `environments/*.tfvars` | Update if different |
+| GitHub Repo | `modules/iam/github_actions.tf`, `environments/*.tfvars` | Update to client repo |
+| GitHub Branch | `modules/iam/github_actions.tf`, `environments/*.tfvars` | Update if not main |
+| Email | `environments/*.tfvars` | Update to client email |
+| Secrets | GitHub repo settings | Update AWS_ACCOUNT_ID and AWS_REGION |
+| Backend Infrastructure | AWS account | Create S3 buckets and DynamoDB table |
+
+All other code remains unchanged.

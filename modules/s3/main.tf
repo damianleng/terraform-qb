@@ -123,7 +123,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "staging" {
 # Logs bucket
 resource "aws_s3_bucket" "logs" {
   bucket        = "${var.project}-${var.environment}-qb-logs"
-  force_destroy = var.force_destroy
+  force_destroy = true
 
   tags = {
     Name        = "${var.project}-${var.environment}-qb-logs"
@@ -230,99 +230,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 }
 
 # Terraform state bucket
-resource "aws_s3_bucket" "terraform_state" {
-  bucket        = "${var.project}-${var.environment}-qb-terraform-state"
-  force_destroy = var.force_destroy
-
-  tags = {
-    Name        = "${var.project}-${var.environment}-qb-terraform-state"
-    Environment = var.environment
-    Project     = var.project
-  }
-}
-
-resource "aws_s3_bucket_versioning" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.s3.arn
-    }
-    bucket_key_enabled = true
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_policy" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowUserAccess"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::876594438266:user/cloud-admin-damian"
-        }
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject"
-        ]
-        Resource = "${aws_s3_bucket.terraform_state.arn}/*"
-      }
-    ]
-  })
-}
-
-# KMS key policy to allow user
-resource "aws_kms_grant" "terraform_state" {
-  name              = "terraform-state-user-grant"
-  key_id            = aws_kms_key.s3.id
-  grantee_principal = "arn:aws:iam::876594438266:user/cloud-admin-damian"
-  operations        = ["Encrypt", "Decrypt", "GenerateDataKey"]
-}
-
-resource "aws_s3_bucket_logging" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  target_bucket = aws_s3_bucket.logs.id
-  target_prefix = "terraform-state-logs/"
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  rule {
-    id     = "archive-only"
-    status = "Enabled"
-
-    filter {}
-
-    transition {
-      days          = 90
-      storage_class = "GLACIER"
-    }
-  }
-}
+# NOTE: This bucket is managed separately outside of Terraform to prevent accidental deletion
+# Create manually with:
+# aws s3 mb s3://qb-financial-warehouse-dev-qb-terraform-state --region us-east-1
+# aws s3api put-bucket-versioning --bucket qb-financial-warehouse-dev-qb-terraform-state --versioning-configuration Status=Enabled --region us-east-1
 
 # Analytics backups bucket
 resource "aws_s3_bucket" "analytics_backups" {
