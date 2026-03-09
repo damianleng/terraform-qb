@@ -147,6 +147,30 @@ resource "aws_iam_policy" "github_actions" {
           "arn:aws:s3:::${var.project}-prod-qb-terraform-state",
           "arn:aws:s3:::${var.project}-prod-qb-terraform-state/*"
         ]
+      },
+      {
+        Sid      = "BudgetsAccess"
+        Effect   = "Allow"
+        Action   = ["budgets:*"]
+        Resource = "*"
+      },
+      {
+        Sid      = "GuardDutyAccess"
+        Effect   = "Allow"
+        Action   = ["guardduty:*"]
+        Resource = "*"
+      },
+      {
+        Sid      = "EventBridgeAccess"
+        Effect   = "Allow"
+        Action   = ["events:*"]
+        Resource = "*"
+      },
+      {
+        Sid      = "ConfigAccess"
+        Effect   = "Allow"
+        Action   = ["config:*"]
+        Resource = "*"
       }
     ]
   })
