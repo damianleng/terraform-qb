@@ -179,3 +179,290 @@ resource "aws_accessanalyzer_analyzer" "main" {
     ManagedBy   = "Terraform"
   }
 }
+
+# AWS Guard Duty
+resource "aws_guardduty_detector" "main" {
+  count  = var.enable_guardduty ? 1 : 0
+  enable = true
+
+  datasources {
+    s3_logs {
+      enable = true
+    }
+    malware_protection {
+      scan_ec2_instance_with_findings {
+        ebs_volumes {
+          enable = true
+        }
+      }
+    }
+  }
+
+  tags = {
+    Name        = "${var.project}-${var.environment}-guardduty"
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# SNS topic for GuardDuty findings
+resource "aws_sns_topic" "guardduty_alerts" {
+  count = var.enable_guardduty ? 1 : 0
+  name  = "${var.project}-${var.environment}-guardduty-alerts"
+
+  tags = {
+    Name        = "${var.project}-${var.environment}-guardduty-alerts"
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_sns_topic_subscription" "guardduty_email" {
+  count     = var.enable_guardduty ? 1 : 0
+  topic_arn = aws_sns_topic.guardduty_alerts[0].arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+# EventBridge rule to forward GuardDuty findings to SNS
+resource "aws_cloudwatch_event_rule" "guardduty_findings" {
+  count       = var.enable_guardduty ? 1 : 0
+  name        = "${var.project}-${var.environment}-guardduty-findings"
+  description = "Forward GuardDuty findings to SNS"
+
+  event_pattern = jsonencode({
+    source      = ["aws.guardduty"]
+    detail-type = ["GuardDuty Finding"]
+    detail = {
+      severity = [{ numeric = [">=", 4] }]
+    }
+  })
+
+  tags = {
+    Name        = "${var.project}-${var.environment}-guardduty-findings"
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_cloudwatch_event_target" "guardduty_sns" {
+  count     = var.enable_guardduty ? 1 : 0
+  rule      = aws_cloudwatch_event_rule.guardduty_findings[0].name
+  target_id = "SendToSNS"
+  arn       = aws_sns_topic.guardduty_alerts[0].arn
+}
+
+resource "aws_sns_topic_policy" "guardduty_alerts" {
+  count = var.enable_guardduty ? 1 : 0
+  arn   = aws_sns_topic.guardduty_alerts[0].arn
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowEventBridgePublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action   = "sns:Publish"
+        Resource = aws_sns_topic.guardduty_alerts[0].arn
+      }
+    ]
+  })
+}
+
+# IAM role for AWS Config
+resource "aws_iam_role" "config" {
+  count = var.enable_aws_config ? 1 : 0
+  name  = "${var.project}-${var.environment}-config-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project}-${var.environment}-config-role"
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "config" {
+  count      = var.enable_aws_config ? 1 : 0
+  role       = aws_iam_role.config[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
+}
+
+# Allow Config to write to the existing logs S3 bucket
+resource "aws_iam_role_policy" "config_s3" {
+  count = var.enable_aws_config ? 1 : 0
+  name  = "${var.project}-${var.environment}-config-s3-policy"
+  role  = aws_iam_role.config[0].name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetBucketAcl"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.cloudtrail_s3_bucket_name}",
+          "arn:aws:s3:::${var.cloudtrail_s3_bucket_name}/config/*"
+        ]
+      }
+    ]
+  })
+}
+
+# Config recorder
+resource "aws_config_configuration_recorder" "main" {
+  count    = var.enable_aws_config ? 1 : 0
+  name     = "${var.project}-${var.environment}-config-recorder"
+  role_arn = aws_iam_role.config[0].arn
+
+  recording_group {
+    all_supported                 = true
+    include_global_resource_types = true
+  }
+}
+
+# Config delivery channel — uses existing logs bucket with config/ prefix
+resource "aws_config_delivery_channel" "main" {
+  count          = var.enable_aws_config ? 1 : 0
+  name           = "${var.project}-${var.environment}-config-delivery"
+  s3_bucket_name = var.cloudtrail_s3_bucket_name
+  s3_key_prefix  = "config"
+  depends_on     = [aws_config_configuration_recorder.main]
+}
+
+# Enable the recorder
+resource "aws_config_configuration_recorder_status" "main" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = aws_config_configuration_recorder.main[0].name
+  is_enabled = true
+  depends_on = [aws_config_delivery_channel.main]
+}
+
+# RDS storage encryption enabled
+resource "aws_config_config_rule" "rds_storage_encrypted" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = "${var.project}-${var.environment}-rds-storage-encrypted"
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  source {
+    owner             = "AWS"
+    source_identifier = "RDS_STORAGE_ENCRYPTED"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# RDS backup enabled
+resource "aws_config_config_rule" "rds_backup_enabled" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = "${var.project}-${var.environment}-rds-backup-enabled"
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  source {
+    owner             = "AWS"
+    source_identifier = "DB_INSTANCE_BACKUP_ENABLED"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# S3 bucket server side encryption enabled
+resource "aws_config_config_rule" "s3_bucket_encrypted" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = "${var.project}-${var.environment}-s3-bucket-encrypted"
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  source {
+    owner             = "AWS"
+    source_identifier = "S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# S3 bucket public access blocked
+resource "aws_config_config_rule" "s3_public_access_blocked" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = "${var.project}-${var.environment}-s3-public-access-blocked"
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  source {
+    owner             = "AWS"
+    source_identifier = "S3_BUCKET_LEVEL_PUBLIC_ACCESS_PROHIBITED"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# IAM MFA enabled for root
+resource "aws_config_config_rule" "root_mfa_enabled" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = "${var.project}-${var.environment}-root-mfa-enabled"
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  source {
+    owner             = "AWS"
+    source_identifier = "ROOT_ACCOUNT_MFA_ENABLED"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# CloudTrail enabled
+resource "aws_config_config_rule" "cloudtrail_enabled" {
+  count      = var.enable_aws_config ? 1 : 0
+  name       = "${var.project}-${var.environment}-cloudtrail-enabled"
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  source {
+    owner             = "AWS"
+    source_identifier = "CLOUD_TRAIL_ENABLED"
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}

@@ -653,3 +653,168 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
     aws_iam_role_policy_attachment.step_functions
   ]
 }
+
+# Lambda error rate alarms (one per function)
+resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  for_each = {
+    extract   = aws_lambda_function.extract.function_name
+    transform = aws_lambda_function.transform.function_name
+    load      = aws_lambda_function.load.function_name
+  }
+
+  alarm_name          = "${var.project}-${var.environment}-${each.key}-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Lambda ${each.key} function errors"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = each.value
+  }
+
+  alarm_actions = [aws_sns_topic.etl_alerts.arn]
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Step Functions execution failure alarm
+resource "aws_cloudwatch_metric_alarm" "sfn_failures" {
+  alarm_name          = "${var.project}-${var.environment}-etl-pipeline-failures"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ExecutionsFailed"
+  namespace           = "AWS/States"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "ETL Step Functions pipeline execution failed"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    StateMachineArn = aws_sfn_state_machine.etl_pipeline.arn
+  }
+
+  alarm_actions = [aws_sns_topic.etl_alerts.arn]
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Lambda duration alarm — warns if functions are close to timeout
+resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
+  for_each = {
+    extract   = aws_lambda_function.extract.function_name
+    transform = aws_lambda_function.transform.function_name
+    load      = aws_lambda_function.load.function_name
+  }
+
+  alarm_name          = "${var.project}-${var.environment}-${each.key}-duration"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Duration"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 480000 # 480 seconds — 80% of 600s timeout
+  alarm_description   = "Lambda ${each.key} approaching timeout"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = each.value
+  }
+
+  alarm_actions = [aws_sns_topic.etl_alerts.arn]
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_cloudwatch_dashboard" "etl" {
+  dashboard_name = "${var.project}-${var.environment}-etl"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Lambda Errors"
+          period = 300
+          stat   = "Sum"
+          metrics = [
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.extract.function_name],
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.transform.function_name],
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.load.function_name]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Lambda Duration (ms)"
+          period = 300
+          stat   = "Average"
+          metrics = [
+            ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.extract.function_name],
+            ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.transform.function_name],
+            ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.load.function_name]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 6
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Step Functions Executions"
+          period = 300
+          stat   = "Sum"
+          metrics = [
+            ["AWS/States", "ExecutionsSucceeded", "StateMachineArn", aws_sfn_state_machine.etl_pipeline.arn],
+            ["AWS/States", "ExecutionsFailed", "StateMachineArn", aws_sfn_state_machine.etl_pipeline.arn]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 6
+        width  = 12
+        height = 6
+        properties = {
+          title  = "RDS CPU & Connections"
+          period = 300
+          stat   = "Average"
+          metrics = [
+            ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", var.rds_identifier],
+            ["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", var.rds_identifier]
+          ]
+        }
+      }
+    ]
+  })
+}

@@ -19,6 +19,7 @@ module "rds" {
   skip_final_snapshot   = var.environment == "dev" ? true : false
   backup_retention_days = var.environment == "prod" ? 30 : 7
   deletion_protection   = var.environment == "prod" ? true : false
+  sns_topic_arn         = module.lambda.sns_topic_arn
 }
 
 module "s3" {
@@ -41,6 +42,7 @@ module "lambda" {
   rds_endpoint             = module.rds.db_instance_endpoint
   alert_email              = var.alert_email
   qb_api_secret_arn        = var.qb_api_secret_arn
+  rds_identifier           = module.rds.db_instance_id
 }
 
 
@@ -49,4 +51,29 @@ module "iam" {
   environment               = var.environment
   project                   = var.project
   cloudtrail_s3_bucket_name = module.s3.logs_bucket_name
+  alert_email               = var.alert_email
+}
+
+resource "aws_budgets_budget" "monthly" {
+  name         = "${var.project}-${var.environment}-monthly-budget"
+  budget_type  = "COST"
+  limit_amount = var.monthly_budget_limit
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.alert_email]
+  }
 }

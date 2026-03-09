@@ -54,3 +54,21 @@ variable "password_max_age" {
   type        = number
   default     = 90
 }
+
+variable "enable_guardduty" {
+  description = "Enable GuardDuty threat detection"
+  type        = bool
+  default     = true
+}
+
+variable "enable_aws_config" {
+  description = "Enable AWS Config compliance recording"
+  type        = bool
+  default     = true
+}
+
+variable "alert_email" {
+  description = "Email address for GuardDuty finding alerts"
+  type        = string
+}
+

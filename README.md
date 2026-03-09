@@ -13,6 +13,11 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
 ├── outputs.tf                       # Root-level outputs
 ├── terraform.tf                     # Provider and version configuration
 ├── .gitignore                       # Git ignore rules
+├── bootstrap/                       # One-time setup — run once, never destroyed
+│   ├── main.tf                      # GitHub OIDC provider + Actions IAM role
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── terraform.tf                 # Local state — do NOT migrate to S3
 ├── environments/
 │   ├── dev.tfvars                   # Dev environment variables (gitignored)
 │   ├── dev.tfvars.example           # Dev template
@@ -35,13 +40,13 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
     │   ├── main.tf
     │   ├── variables.tf
     │   └── outputs.tf
-    ├── lambda/                      # Lambda ETL functions + Step Functions
+    ├── lambda/                      # Lambda ETL functions + Step Functions + monitoring
     │   ├── main.tf
     │   ├── variables.tf
     │   └── outputs.tf
-    └── iam/                         # IAM, CloudTrail, GitHub OIDC role
+    └── iam/                         # IAM, CloudTrail, GuardDuty, AWS Config
         ├── main.tf
-        ├── github_actions.tf
+        ├── github_actions.tf        # Empty — OIDC moved to bootstrap/
         ├── variables.tf
         └── outputs.tf
 ```
@@ -73,6 +78,7 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
 - Secrets Manager secret storing credentials as JSON (username, password, host, port, dbname)
 - DB subnet group, parameter group, enhanced monitoring IAM role
 - Performance Insights enabled
+- CloudWatch alarms: CPU > 80%, free storage < 10GB, connections > 50
 
 **Environment-specific config:**
 
@@ -97,7 +103,7 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
 | Bucket | Purpose |
 |---|---|
 | `{project}-{environment}-qb-staging` | Raw QuickBooks data landing zone before RDS load |
-| `{project}-{environment}-qb-logs` | ETL Lambda execution logs (long-term audit trail) |
+| `{project}-{environment}-qb-logs` | ETL logs, CloudTrail logs, AWS Config snapshots |
 | `{project}-{environment}-qb-terraform-state` | Terraform remote state storage |
 | `{project}-{environment}-qb-analytics-backups` | Pyplan dashboard backups |
 
@@ -121,6 +127,8 @@ All buckets have:
 - 3 CloudWatch log groups (90-day retention)
 - Step Functions state machine: Extract → Transform → Load
 - SNS topic for ETL failure alerts with email subscription
+- CloudWatch alarms: Lambda errors, Lambda duration approaching timeout, Step Functions failures
+- CloudWatch dashboard: Lambda errors, duration, Step Functions executions, RDS CPU and connections
 
 **ETL Pipeline:**
 
@@ -158,17 +166,23 @@ FailState
 - CloudTrail (multi-region, log file validation, KMS encrypted)
 - KMS key for CloudTrail logs
 - IAM Access Analyzer (account-level)
-- GitHub Actions OIDC provider and IAM role for CI/CD authentication
+- GuardDuty detector with S3 protection and malware scanning enabled
+- EventBridge rule forwarding GuardDuty findings (severity >= 4) to SNS email alert
+- AWS Config recorder tracking all supported resource types
+- AWS Config delivery channel writing snapshots to logs S3 bucket under `config/` prefix
+- 6 AWS Config managed rules: `rds-storage-encrypted`, `rds-backup-enabled`, `s3-bucket-encrypted`, `s3-public-access-blocked`, `root-mfa-enabled`, `cloudtrail-enabled`
 
-**Outputs:** `cloudtrail_arn`, `cloudtrail_kms_key_arn`, `access_analyzer_arn`, `github_actions_role_arn`
+> GitHub Actions OIDC provider and IAM role are managed in `bootstrap/` — not here.
+
+**Outputs:** `cloudtrail_arn`, `cloudtrail_kms_key_arn`, `access_analyzer_arn`, `mfa_group_name`, `guardduty_detector_id`, `guardduty_sns_topic_arn`, `config_recorder_name`
 
 ---
 
-## Prerequisites — Manual Setup (One Time Only)
+## Prerequisites — One Time Setup
 
-These resources must be created manually before running `terraform init` because Terraform needs them to store state.
+Follow these steps in order the first time you set up the project in a new AWS account.
 
-### 1. Create S3 State Buckets
+### 1. Create S3 State Buckets (manual — Terraform can't manage its own state bucket)
 
 ```bash
 # Dev state bucket
@@ -198,9 +212,7 @@ aws s3api put-bucket-encryption \
   --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
 ```
 
-### 2. Create Separate DynamoDB Lock Tables
-
-Dev and prod use separate lock tables to prevent conflicts when running simultaneously.
+### 2. Create DynamoDB Lock Tables (manual — dev and prod are separate)
 
 ```bash
 # Dev lock table
@@ -220,38 +232,27 @@ aws dynamodb create-table \
   --region us-east-1
 ```
 
-### 3. Create GitHub OIDC Provider (if not already exists)
+### 3. Run Bootstrap (creates GitHub OIDC provider and Actions IAM role)
+
+The `bootstrap/` folder manages the GitHub Actions OIDC provider and IAM role. These resources live outside the main infrastructure so they survive `terraform destroy` cycles.
 
 ```bash
-aws iam create-open-id-connect-provider \
-  --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 \
-  --region us-east-1
+cd bootstrap/
+terraform init
+terraform apply
 ```
 
-If it already exists you'll get an `EntityAlreadyExists` error — that's fine, import it into Terraform state instead:
+Note the `github_actions_role_arn` output — it should match the `role-to-assume` in `.github/workflows/terraform.yml`.
 
-```bash
-terraform import module.iam.aws_iam_openid_connect_provider.github \
-  arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
-```
+> **Important:** The `bootstrap/terraform.tfstate` file uses local state intentionally. Do not migrate it to S3. Keep it safe — if lost you will need to re-import resources manually. Add `bootstrap/terraform.tfstate` and `bootstrap/terraform.tfstate.backup` to `.gitignore`.
 
-### 4. Bootstrap IAM Module (OIDC Role)
-
-The GitHub Actions OIDC role must exist before the pipeline can authenticate. Bootstrap it locally once:
-
-```bash
-terraform apply -var-file="environments/dev.tfvars" -target=module.iam
-```
-
-### 5. Add GitHub Secrets
+### 4. Add GitHub Secrets
 
 Go to GitHub repo → Settings → Secrets and variables → Actions:
 - `AWS_ACCOUNT_ID` — your AWS account ID
 - `AWS_REGION` — `us-east-1`
 
-### 6. Set Up Production Environment in GitHub
+### 5. Set Up Production Environment in GitHub
 
 Go to GitHub repo → Settings → Environments → New environment:
 - Name: `production`
@@ -400,67 +401,53 @@ Go to Actions → Terraform Destroy → Run workflow:
 
 When deploying to a client's AWS account and GitHub repo, update these locations:
 
-### 1. GitHub Actions Workflow (`.github/workflows/terraform.yml`)
-
-```yaml
-# Update AWS account ID
-role-to-assume: arn:aws:iam::CLIENT_ACCOUNT_ID:role/qb-financial-warehouse-github-actions-role
-
-# Update backend bucket names
--backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state"
--backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state"
-
-# Dev jobs
--backend-config="dynamodb_table=qb-financial-warehouse-dev-terraform-locks"
-
-# Prod jobs
--backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks"
-```
-
-### 2. IAM Module (`modules/iam/github_actions.tf`)
+### 1. Bootstrap (`bootstrap/variables.tf`)
 
 ```hcl
 variable "github_repo" {
   default = "client-org/client-repo"
 }
+```
 
-variable "github_branch" {
-  default = "main"
-}
+### 2. GitHub Actions Workflow (`.github/workflows/terraform.yml`)
+
+```yaml
+# The role name stays the same, just update the account ID via GitHub secret
+role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/qb-financial-warehouse-github-actions-role
 ```
 
 ### 3. Environment Variables (`environments/*.tfvars`)
 
 ```hcl
-alert_email       = "client-email@example.com"
-qb_api_secret_arn = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
-github_repo       = "client-org/client-repo"
+alert_email          = "client-email@example.com"
+qb_api_secret_arn    = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
+monthly_budget_limit = "200"
 ```
 
 ### 4. GitHub Secrets (Client Repo Settings)
 - `AWS_ACCOUNT_ID` — client AWS account ID
 - `AWS_REGION` — client AWS region
 
-### 5. Repeat Manual Setup Steps
+### 5. Repeat Prerequisites
 Run all steps in the Prerequisites section above using the client's AWS account credentials.
 
 ### Summary of Changes
 
 | Item | Location | Change |
 |---|---|---|
-| AWS Account ID | `.github/workflows/terraform.yml`, `modules/iam/github_actions.tf` | Update to client account |
-| AWS Region | `.github/workflows/terraform.yml`, `environments/*.tfvars` | Update if different |
-| GitHub Repo | `modules/iam/github_actions.tf`, `environments/*.tfvars` | Update to client repo |
+| GitHub Repo | `bootstrap/variables.tf` | Update to client repo |
+| AWS Account ID | GitHub Secrets | Update `AWS_ACCOUNT_ID` |
+| AWS Region | GitHub Secrets, `environments/*.tfvars` | Update if different |
 | Email | `environments/*.tfvars` | Update to client email |
-| GitHub Secrets | GitHub repo settings | Update `AWS_ACCOUNT_ID` and `AWS_REGION` |
-| Backend Infrastructure | AWS account | Create S3 buckets and DynamoDB tables |
+| Budget limit | `environments/*.tfvars` | Update to client budget |
+| Backend Infrastructure | AWS account | Create S3 buckets and DynamoDB tables manually |
 
 ---
 
 ## Requirements
 
 - Terraform >= 1.2
-- AWS Provider ~> 5.0
+- AWS Provider ~> 5.92
 - AWS CLI configured with valid credentials
 - Personal AWS account for testing
 
@@ -471,11 +458,13 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 | `environment` | Environment name (dev or prod) | Yes |
 | `project` | Project name | Yes |
 | `aws_region` | AWS region | No (default: us-east-1) |
-| `alert_email` | Email for ETL failure alerts | Yes |
+| `alert_email` | Email for ETL and security alerts | Yes |
 | `qb_api_secret_arn` | QuickBooks API credentials secret ARN | Yes |
+| `monthly_budget_limit` | Monthly AWS spend limit in USD | No (default: 50) |
 
 ## Additional Documentation
 
+- `CLAUDE.md` — Full project context for AI-assisted development
 - `personal_testing.md` — Step-by-step guide for personal AWS testing
 - `environments/dev.tfvars.example` — Dev configuration template
 - `environments/prod.tfvars.example` — Prod configuration template
