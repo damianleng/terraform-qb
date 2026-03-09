@@ -40,11 +40,11 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
     │   ├── main.tf
     │   ├── variables.tf
     │   └── outputs.tf
-    ├── lambda/                      # Lambda ETL functions + Step Functions
+    ├── lambda/                      # Lambda ETL functions + Step Functions + monitoring
     │   ├── main.tf
     │   ├── variables.tf
     │   └── outputs.tf
-    └── iam/                         # IAM, CloudTrail, MFA, Access Analyzer
+    └── iam/                         # IAM, CloudTrail, GuardDuty, AWS Config
         ├── main.tf
         ├── github_actions.tf        # Empty — OIDC moved to bootstrap/
         ├── variables.tf
@@ -78,6 +78,7 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
 - Secrets Manager secret storing credentials as JSON (username, password, host, port, dbname)
 - DB subnet group, parameter group, enhanced monitoring IAM role
 - Performance Insights enabled
+- CloudWatch alarms: CPU > 80%, free storage < 10GB, connections > 50
 
 **Environment-specific config:**
 
@@ -102,7 +103,7 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
 | Bucket | Purpose |
 |---|---|
 | `{project}-{environment}-qb-staging` | Raw QuickBooks data landing zone before RDS load |
-| `{project}-{environment}-qb-logs` | ETL Lambda execution logs (long-term audit trail) |
+| `{project}-{environment}-qb-logs` | ETL logs, CloudTrail logs, AWS Config snapshots |
 | `{project}-{environment}-qb-terraform-state` | Terraform remote state storage |
 | `{project}-{environment}-qb-analytics-backups` | Pyplan dashboard backups |
 
@@ -126,6 +127,8 @@ All buckets have:
 - 3 CloudWatch log groups (90-day retention)
 - Step Functions state machine: Extract → Transform → Load
 - SNS topic for ETL failure alerts with email subscription
+- CloudWatch alarms: Lambda errors, Lambda duration approaching timeout, Step Functions failures
+- CloudWatch dashboard: Lambda errors, duration, Step Functions executions, RDS CPU and connections
 
 **ETL Pipeline:**
 
@@ -163,10 +166,15 @@ FailState
 - CloudTrail (multi-region, log file validation, KMS encrypted)
 - KMS key for CloudTrail logs
 - IAM Access Analyzer (account-level)
+- GuardDuty detector with S3 protection and malware scanning enabled
+- EventBridge rule forwarding GuardDuty findings (severity >= 4) to SNS email alert
+- AWS Config recorder tracking all supported resource types
+- AWS Config delivery channel writing snapshots to logs S3 bucket under `config/` prefix
+- 6 AWS Config managed rules: `rds-storage-encrypted`, `rds-backup-enabled`, `s3-bucket-encrypted`, `s3-public-access-blocked`, `root-mfa-enabled`, `cloudtrail-enabled`
 
 > GitHub Actions OIDC provider and IAM role are managed in `bootstrap/` — not here.
 
-**Outputs:** `cloudtrail_arn`, `cloudtrail_kms_key_arn`, `access_analyzer_arn`, `mfa_group_name`
+**Outputs:** `cloudtrail_arn`, `cloudtrail_kms_key_arn`, `access_analyzer_arn`, `mfa_group_name`, `guardduty_detector_id`, `guardduty_sns_topic_arn`, `config_recorder_name`
 
 ---
 
@@ -411,8 +419,9 @@ role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/qb-financial-war
 ### 3. Environment Variables (`environments/*.tfvars`)
 
 ```hcl
-alert_email       = "client-email@example.com"
-qb_api_secret_arn = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
+alert_email          = "client-email@example.com"
+qb_api_secret_arn    = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
+monthly_budget_limit = "200"
 ```
 
 ### 4. GitHub Secrets (Client Repo Settings)
@@ -430,6 +439,7 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 | AWS Account ID | GitHub Secrets | Update `AWS_ACCOUNT_ID` |
 | AWS Region | GitHub Secrets, `environments/*.tfvars` | Update if different |
 | Email | `environments/*.tfvars` | Update to client email |
+| Budget limit | `environments/*.tfvars` | Update to client budget |
 | Backend Infrastructure | AWS account | Create S3 buckets and DynamoDB tables manually |
 
 ---
@@ -437,7 +447,7 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 ## Requirements
 
 - Terraform >= 1.2
-- AWS Provider ~> 5.0
+- AWS Provider ~> 5.92
 - AWS CLI configured with valid credentials
 - Personal AWS account for testing
 
@@ -448,34 +458,13 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 | `environment` | Environment name (dev or prod) | Yes |
 | `project` | Project name | Yes |
 | `aws_region` | AWS region | No (default: us-east-1) |
-| `alert_email` | Email for ETL failure alerts | Yes |
+| `alert_email` | Email for ETL and security alerts | Yes |
 | `qb_api_secret_arn` | QuickBooks API credentials secret ARN | Yes |
+| `monthly_budget_limit` | Monthly AWS spend limit in USD | No (default: 50) |
 
 ## Additional Documentation
 
-- `personal_testing.md` — Step-by-step guide for personal AWS testing
-- `environments/dev.tfvars.example` — Dev configuration template
-- `environments/prod.tfvars.example` — Prod configuration template
-
-## Requirements
-
-- Terraform >= 1.2
-- AWS Provider ~> 5.0
-- AWS CLI configured with valid credentials
-- Personal AWS account for testing
-
-## Root Variables
-
-| Variable | Description | Required |
-|---|---|---|
-| `environment` | Environment name (dev or prod) | Yes |
-| `project` | Project name | Yes |
-| `aws_region` | AWS region | No (default: us-east-1) |
-| `alert_email` | Email for ETL failure alerts | Yes |
-| `qb_api_secret_arn` | QuickBooks API credentials secret ARN | Yes |
-
-## Additional Documentation
-
+- `CLAUDE.md` — Full project context for AI-assisted development
 - `personal_testing.md` — Step-by-step guide for personal AWS testing
 - `environments/dev.tfvars.example` — Dev configuration template
 - `environments/prod.tfvars.example` — Prod configuration template
