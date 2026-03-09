@@ -757,6 +757,7 @@ resource "aws_cloudwatch_dashboard" "etl" {
         height = 6
         properties = {
           title  = "Lambda Errors"
+          region = var.aws_region
           period = 300
           stat   = "Sum"
           metrics = [
@@ -774,6 +775,7 @@ resource "aws_cloudwatch_dashboard" "etl" {
         height = 6
         properties = {
           title  = "Lambda Duration (ms)"
+          region = var.aws_region
           period = 300
           stat   = "Average"
           metrics = [
@@ -791,6 +793,7 @@ resource "aws_cloudwatch_dashboard" "etl" {
         height = 6
         properties = {
           title  = "Step Functions Executions"
+          region = var.aws_region
           period = 300
           stat   = "Sum"
           metrics = [
@@ -807,6 +810,7 @@ resource "aws_cloudwatch_dashboard" "etl" {
         height = 6
         properties = {
           title  = "RDS CPU & Connections"
+          region = var.aws_region
           period = 300
           stat   = "Average"
           metrics = [
