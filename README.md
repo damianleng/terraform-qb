@@ -1,440 +1,226 @@
-# Infrastructure as Code - Terraform Project
+# QB Financial Data Warehouse — Terraform Infrastructure
 
 ## Overview
-This project manages AWS infrastructure using Terraform with a modular approach for the qb-financial-warehouse project.
+
+This project manages AWS infrastructure for the QuickBooks Financial Data Warehouse using Terraform with a modular approach. It supports two environments (dev and prod) with automated CI/CD via GitHub Actions.
 
 ## Project Structure
+
 ```
 .
-├── main.tf              # Root module - calls child modules
-├── variables.tf         # Root-level input variables
-├── output.tf           # Root-level outputs
-├── terraform.tf        # Provider and version configuration
-├── .gitignore          # Git ignore rules for Terraform
+├── main.tf                          # Root module — calls child modules
+├── variables.tf                     # Root-level input variables
+├── outputs.tf                       # Root-level outputs
+├── terraform.tf                     # Provider and version configuration
+├── .gitignore                       # Git ignore rules
+├── environments/
+│   ├── dev.tfvars                   # Dev environment variables (gitignored)
+│   ├── dev.tfvars.example           # Dev template
+│   ├── prod.tfvars                  # Prod environment variables (gitignored)
+│   └── prod.tfvars.example          # Prod template
+├── .github/
+│   └── workflows/
+│       ├── terraform.yml            # CI/CD pipeline
+│       └── terraform-destroy.yml   # Manual destroy workflow
 └── modules/
-    ├── vpc/            # VPC module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── output.tf
-    ├── rds/            # RDS module
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── output.tf
-    ├── s3/             # S3 module
+    ├── vpc/                         # VPC, subnets, security groups
     │   ├── main.tf
     │   ├── variables.tf
     │   └── outputs.tf
-    └── lambda/         # Lambda & Step Functions module
+    ├── rds/                         # PostgreSQL RDS instance
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    ├── s3/                          # S3 buckets with KMS encryption
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    ├── lambda/                      # Lambda ETL functions + Step Functions
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    └── iam/                         # IAM, CloudTrail, GitHub OIDC role
         ├── main.tf
+        ├── github_actions.tf
         ├── variables.tf
         └── outputs.tf
 ```
 
-## VPC Module
+---
 
-### What It Creates
-- **VPC**: 10.0.0.0/16 CIDR block with DNS support enabled
-- **Public Subnets**: 2 subnets (10.0.0.0/24, 10.0.1.0/24) across 2 AZs
-- **Private Subnets**: 2 subnets (10.0.2.0/24, 10.0.3.0/24) across 2 AZs
-- **Database Subnets**: 2 subnets (10.0.4.0/24, 10.0.5.0/24) across 2 AZs
-- **Internet Gateway**: For public subnet internet access
-- **NAT Gateway**: Single NAT with EIP for private subnet outbound traffic
-- **Route Tables**: Separate route tables for public and private subnets with proper associations
-- **Security Groups**: Lambda SG (outbound to internet) and RDS SG (inbound from Lambda only, outbound VPC-only)
+## Modules
 
-### Module Inputs
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| environment | string | (required) | Environment name (dev/prod) |
-| project | string | (required) | Project name |
-| vpc_cidr | string | 10.0.0.0/16 | VPC CIDR block |
-| enable_nat_gateway | bool | true | Enable/disable NAT Gateway |
+### VPC Module
 
-### Module Outputs
-- `vpc_id` - VPC ID
-- `vpc_cidr` - VPC CIDR block
-- `public_subnet_ids` - List of public subnet IDs
-- `private_subnet_ids` - List of private subnet IDs
-- `database_subnet_ids` - List of database subnet IDs
-- `internet_gateway_id` - Internet Gateway ID
-- `nat_gateway_id` - NAT Gateway ID (null if disabled)
-- `lambda_security_group_id` - Lambda security group ID
-- `rds_security_group_id` - RDS security group ID
+**What it creates:**
+- VPC: `10.0.0.0/16` with DNS support enabled
+- Public subnets: `10.0.0.0/24`, `10.0.1.0/24` across 2 AZs
+- Private subnets: `10.0.2.0/24`, `10.0.3.0/24` across 2 AZs
+- Database subnets: `10.0.4.0/24`, `10.0.5.0/24` across 2 AZs (fully isolated)
+- Internet Gateway, NAT Gateway, route tables
+- Lambda security group (outbound to internet)
+- RDS security group (inbound from Lambda only, outbound VPC-only)
 
-## RDS Module
+**Outputs:** `vpc_id`, `vpc_cidr`, `public_subnet_ids`, `private_subnet_ids`, `database_subnet_ids`, `internet_gateway_id`, `nat_gateway_id`, `lambda_security_group_id`, `rds_security_group_id`
 
-### What It Creates
-- **PostgreSQL 16 Database**: Managed RDS instance
-- **Secrets Manager**: Auto-generated password storage
-- **DB Subnet Group**: Spans database subnets across AZs
-- **Parameter Group**: Custom PostgreSQL settings with connection logging
-- **IAM Role**: For enhanced monitoring
-- **Encryption**: All storage encrypted at rest
-- **Backups**: Automated daily backups with 7-day retention
-- **Monitoring**: Enhanced monitoring and Performance Insights enabled
+---
 
-### Environment-Specific Configuration
+### RDS Module
+
+**What it creates:**
+- PostgreSQL 16 RDS instance
+- Customer-managed KMS key for storage encryption with automatic rotation
+- Secrets Manager secret storing credentials as JSON (username, password, host, port, dbname)
+- DB subnet group, parameter group, enhanced monitoring IAM role
+- Performance Insights enabled
+
+**Environment-specific config:**
+
 | Setting | Dev | Prod |
-|---------|-----|------|
+|---|---|---|
 | Instance Class | db.t3.micro | db.t3.medium |
 | Storage | 20GB (autoscale to 100GB) | 100GB (autoscale to 100GB) |
-| Availability | Single-AZ | Multi-AZ |
-| Monitoring Interval | 60 seconds | 30 seconds |
-| Final Snapshot | Skipped | Taken on deletion |
+| Multi-AZ | false | true |
+| Monitoring Interval | 60s | 30s |
+| Backup Retention | 7 days | 90 days |
+| Deletion Protection | false | true |
+| Final Snapshot | Skipped | Taken |
 
-### Module Inputs
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| environment | string | (required) | Environment name (dev/prod) |
-| project | string | (required) | Project name |
-| vpc_id | string | (required) | VPC ID |
-| subnet_ids | list(string) | (required) | Database subnet IDs |
-| security_group_id | string | (required) | RDS security group ID |
-| instance_class | string | db.t3.micro | RDS instance class |
-| allocated_storage | number | 20 | Initial storage in GB |
-| max_allocated_storage | number | 100 | Max storage for autoscaling |
-| postgres_version | string | 16 | PostgreSQL version |
-| db_name | string | qb_financial | Initial database name |
-| db_username | string | dbadmin | Master username |
-| backup_retention_days | number | 7 | Backup retention period |
-| multi_az | bool | false | Enable Multi-AZ |
-| monitoring_interval | number | 60 | Enhanced monitoring interval |
-| backup_window | string | 03:00-04:00 | Backup window (UTC) |
-| maintenance_window | string | sun:04:00-sun:05:00 | Maintenance window (UTC) |
-| deletion_protection | bool | true | Enable deletion protection |
-| skip_final_snapshot | bool | false | Skip final snapshot on deletion |
+**Outputs:** `db_instance_id`, `db_instance_endpoint`, `db_instance_address`, `db_instance_port`, `db_name`, `db_username`, `db_password_secret_arn`, `rds_kms_key_arn`
 
-### RDS Security
-- **KMS Encryption**: Customer-managed key for storage encryption with automatic rotation
-- **Secrets Manager**: Auto-generated password stored securely
-- **Enhanced Monitoring**: OS-level metrics sent to CloudWatch
-- **Performance Insights**: Enabled for performance analysis
-- **Deletion Protection**: Enabled on prod, disabled on dev
-- **Backup Strategy**: Automated daily backups with 7-day retention (dev) or 30-day (prod)
+---
 
-### Module Outputs
-- `db_instance_id` - RDS instance ID
-- `db_instance_endpoint` - Connection endpoint
-- `db_instance_address` - Database address
-- `db_instance_port` - Database port
-- `db_name` - Database name
-- `db_username` - Master username (sensitive)
-- `db_password_secret_arn` - Secrets Manager ARN for password
-- `rds_kms_key_arn` - ARN of the KMS key used for RDS encryption
-| monitoring_interval | number | 60 | Enhanced monitoring interval |
-| backup_window | string | 03:00-04:00 | Backup window (UTC) |
-| maintenance_window | string | sun:04:00-sun:05:00 | Maintenance window (UTC) |
-| deletion_protection | bool | true | Enable deletion protection |
-| skip_final_snapshot | bool | false | Skip final snapshot on deletion |
+### S3 Module
 
-### Module Outputs
-- `db_instance_id` - RDS instance ID
-- `db_instance_endpoint` - Connection endpoint
-- `db_instance_address` - Database address
-- `db_instance_port` - Database port
-- `db_name` - Database name
-- `db_username` - Master username (sensitive)
-- `db_password_secret_arn` - Secrets Manager ARN for password
+**What it creates:**
 
-### What It Creates
-- **4 S3 Buckets**:
-  - `{project}-{environment}-qb-staging` - QuickBooks raw data staging
-  - `{project}-{environment}-qb-logs` - ETL Lambda execution logs
-  - `{project}-{environment}-qb-terraform-state` - Terraform remote state
-  - `{project}-{environment}-qb-analytics-backups` - Pyplan dashboard backups
-- **KMS CMK**: Customer-managed key for S3 encryption with automatic key rotation
-- **Versioning**: Enabled on all buckets
-- **Encryption**: SSE-KMS with bucket keys enabled (reduces KMS API costs)
-- **Public Access**: Completely blocked on all buckets
-- **Logging**: Server access logs sent to logs bucket
-- **Lifecycle Policy**: Transition to Glacier after 90 days, expire after 2555 days (7 years for SOX compliance)
+| Bucket | Purpose |
+|---|---|
+| `{project}-{environment}-qb-staging` | Raw QuickBooks data landing zone before RDS load |
+| `{project}-{environment}-qb-logs` | ETL Lambda execution logs (long-term audit trail) |
+| `{project}-{environment}-qb-terraform-state` | Terraform remote state storage |
+| `{project}-{environment}-qb-analytics-backups` | Pyplan dashboard backups |
 
-### Module Inputs
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| environment | string | (required) | Environment name (dev/prod) |
-| project | string | (required) | Project name |
-| force_destroy | bool | false | Allow bucket deletion even if not empty |
+All buckets have:
+- KMS CMK encryption with bucket keys enabled (reduces API costs)
+- Versioning enabled
+- All public access blocked
+- Bucket policies enforcing KMS encryption and HTTPS only
+- Lifecycle: Glacier after 90 days, expire after 2555 days (7 years, SOX compliance)
+- Server access logging to logs bucket (logs bucket does not log itself)
 
-### Module Outputs
-- `staging_bucket_arn` - Staging bucket ARN
-- `staging_bucket_name` - Staging bucket name
-- `logs_bucket_arn` - Logs bucket ARN
-- `logs_bucket_name` - Logs bucket name
-- `terraform_state_bucket_arn` - Terraform state bucket ARN
-- `terraform_state_bucket_name` - Terraform state bucket name
-- `analytics_backups_bucket_arn` - Analytics backups bucket ARN
-- `analytics_backups_bucket_name` - Analytics backups bucket name
-- `kms_key_arn` - KMS key ARN for S3 encryption
+**Outputs:** `staging_bucket_arn`, `staging_bucket_name`, `logs_bucket_arn`, `logs_bucket_name`, `terraform_state_bucket_arn`, `terraform_state_bucket_name`, `analytics_backups_bucket_arn`, `analytics_backups_bucket_name`, `kms_key_arn`
 
-### S3 Security
-- **KMS Encryption**: Customer-managed key for all buckets with automatic rotation
-- **Bucket Policies**: Deny unencrypted uploads and insecure transport (HTTPS only)
-- **Public Access**: Completely blocked on all buckets
-- **Versioning**: Enabled for data recovery
-- **Bucket Keys**: Enabled to reduce KMS API calls and costs
-- **Server Logging**: Access logs sent to dedicated logs bucket
-- **Lifecycle Management**: Automatic archival to Glacier after 90 days, expiration after 2555 days (SOX compliance)
+---
 
-## Lambda Module
+### Lambda Module
 
-### What It Creates
-- **3 Lambda Functions**:
-  - `{project}-{environment}-qb-extract` - Extracts data from QuickBooks API to S3 staging
-  - `{project}-{environment}-qb-transform` - Transforms and cleans data in S3
-  - `{project}-{environment}-qb-load` - Loads transformed data into RDS PostgreSQL
-- **3 IAM Roles**: Separate execution roles with least privilege policies
-- **3 CloudWatch Log Groups**: 90-day retention for Lambda execution logs
-- **Step Functions State Machine**: Orchestrates Extract → Transform → Load pipeline
-- **SNS Topic**: Email alerts for pipeline failures
-- **Step Functions IAM Role**: Permissions to invoke Lambdas and publish to SNS
+**What it creates:**
+- 3 Lambda functions (Python 3.12, 1024MB, 600s timeout, deployed in private subnets)
+- 3 IAM execution roles with least privilege policies
+- 3 CloudWatch log groups (90-day retention)
+- Step Functions state machine: Extract → Transform → Load
+- SNS topic for ETL failure alerts with email subscription
 
-### Lambda Configuration
-| Setting | Value |
-|---------|-------|
-| Runtime | Python 3.12 |
-| Timeout | 600 seconds |
-| Memory | 1024 MB |
-| VPC | Deployed in private subnets |
-| Environment Variables | ENVIRONMENT, PROJECT, STAGING_BUCKET, DB_SECRET_ARN, RDS_ENDPOINT |
+**ETL Pipeline:**
 
-### IAM Roles & Permissions
+```
+Extract (QB API → S3 staging)
+     ↓ retry 3x, 30s interval, backoff 2
+Transform (S3 staging → clean data)
+     ↓ retry 3x, 30s interval, backoff 2
+Load (S3 staging → RDS PostgreSQL)
+     ↓ on any failure
+NotifyFailure (SNS alert with error details)
+     ↓
+FailState
+```
+
+**IAM roles:**
+
 | Role | Permissions |
-|------|-------------|
+|---|---|
 | qb-extract-role | Secrets Manager read (QB API + DB), S3 write to staging, CloudWatch logs, VPC networking |
-| qb-transform-role | S3 read/write to staging, CloudWatch logs, VPC networking |
-| qb-load-role | S3 read from staging, Secrets Manager read (DB), CloudWatch logs, VPC networking |
-| etl-sfn-role | Lambda invoke (all 3 functions), SNS publish, CloudWatch logs |
+| qb-transform-role | S3 read/write staging, CloudWatch logs, VPC networking |
+| qb-load-role | S3 read staging, Secrets Manager read (DB), CloudWatch logs, VPC networking |
+| etl-sfn-role | Lambda invoke (all 3), SNS publish, CloudWatch log delivery |
 
-### Step Functions Pipeline
-- **Flow**: Extract → Transform → Load (sequential)
-- **Retry Logic**: 3 attempts, 30 second interval, backoff rate 2
-- **Error Handling**: On failure, sends SNS alert with error details and moves to Fail state
-- **State Passing**: Output of each step passed as input to next step
+**Outputs:** `extract_function_arn`, `transform_function_arn`, `load_function_arn`, `extract_role_arn`, `transform_role_arn`, `load_role_arn`, `state_machine_arn`, `sns_topic_arn`
 
-### Module Inputs
-| Variable | Type | Description |
-|----------|------|-------------|
-| environment | string | Environment name (dev/prod) |
-| project | string | Project name |
-| subnet_ids | list(string) | Private subnet IDs for Lambda |
-| lambda_security_group_id | string | Security group ID for Lambda |
-| staging_bucket_arn | string | Staging bucket ARN |
-| staging_bucket_name | string | Staging bucket name |
-| logs_bucket_arn | string | Logs bucket ARN |
-| db_secret_arn | string | RDS password secret ARN |
-| rds_endpoint | string | RDS instance endpoint |
-| alert_email | string | Email for ETL failure alerts |
-| qb_api_secret_arn | string | QuickBooks API credentials secret ARN |
+---
 
-### Module Outputs
-- `extract_function_arn` - Extract Lambda ARN
-- `transform_function_arn` - Transform Lambda ARN
-- `load_function_arn` - Load Lambda ARN
-- `extract_role_arn` - Extract IAM role ARN
-- `transform_role_arn` - Transform IAM role ARN
-- `load_role_arn` - Load IAM role ARN
-- `state_machine_arn` - Step Functions state machine ARN
-- `sns_topic_arn` - SNS topic ARN
+### IAM Module
 
-## IAM Module
+**What it creates:**
+- Account password policy (14 char min, 90-day expiry, 24-key reuse prevention)
+- MFA enforcement policy (denies all actions without MFA except MFA setup)
+- IAM group with MFA policy attached
+- CloudTrail (multi-region, log file validation, KMS encrypted)
+- KMS key for CloudTrail logs
+- IAM Access Analyzer (account-level)
+- GitHub Actions OIDC provider and IAM role for CI/CD authentication
 
-### What It Creates
-- **KMS Key for CloudTrail** - Customer-managed key with automatic rotation for encrypting API logs
-- **CloudTrail** - Multi-region API logging with log file validation enabled
-- **S3 Bucket Policy** - Allows CloudTrail to write encrypted logs, denies unencrypted transport
-- **IAM Password Policy** - Enforces strong passwords across all IAM users
-- **IAM Access Analyzer** - Scans account for external resource access
-- **MFA Enforcement Policy** - Denies all actions without MFA (except MFA setup)
+**Outputs:** `cloudtrail_arn`, `cloudtrail_kms_key_arn`, `access_analyzer_arn`, `github_actions_role_arn`
 
-### Password Policy Requirements
-- Minimum 14 characters
-- Requires uppercase, lowercase, numbers, and symbols
-- 90-day expiration
-- 24-key reuse prevention
-- Users can change their own password
+---
 
-### CloudTrail Configuration
-- Multi-region trail captures all API calls
-- Log file validation enabled for integrity checking
-- Logs encrypted with customer-managed KMS key
-- Stored in S3 with HTTPS-only access
+## Prerequisites — Manual Setup (One Time Only)
 
-### Module Inputs
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| environment | string | (required) | Environment name (dev/prod) |
-| project | string | (required) | Project name |
-| cloudtrail_s3_bucket_name | string | (required) | S3 bucket for CloudTrail logs |
-| enable_access_analyzer | bool | true | Enable IAM Access Analyzer |
-| password_min_length | number | 14 | Minimum password length |
-| password_require_symbols | bool | true | Require symbols in password |
-| password_require_numbers | bool | true | Require numbers in password |
-| password_require_uppercase | bool | true | Require uppercase in password |
-| password_require_lowercase | bool | true | Require lowercase in password |
-| password_max_age | number | 90 | Password expiration in days |
+These resources must be created manually before running `terraform init` because Terraform needs them to store state.
 
-### Module Outputs
-- `cloudtrail_arn` - CloudTrail ARN
-- `cloudtrail_kms_key_arn` - KMS key ARN for CloudTrail encryption
-- `access_analyzer_arn` - IAM Access Analyzer ARN
-
-## Usage
-
-### Initialize Terraform
-```bash
-terraform init
-```
-
-### Plan Changes
-```bash
-terraform plan -var-file="environments/dev.tfvars"
-```
-
-### Apply Configuration
-```bash
-terraform apply -var-file="environments/dev.tfvars"
-```
-
-### Destroy Infrastructure
-```bash
-terraform destroy -var-file="environments/dev.tfvars"
-```
-
-### Check AWS Profile
-```bash
-aws sts get-caller-identity
-echo $AWS_PROFILE
-```
-
-## Variables
-
-### Root Variables
-- `environment` - Environment name (required)
-- `aws_region` - AWS region (default: us-east-1)
-- `project` - Project name (default: qb-financial-warehouse)
-- `alert_email` - Email address for ETL failure alerts (required)
-- `qb_api_secret_arn` - QuickBooks API credentials secret ARN (required)
-
-### Configuration Files
-- `environments/dev.tfvars` - Development environment variables
-- `environments/prod.tfvars` - Production environment variables (when ready)
-
-## Requirements
-- Terraform >= 1.2
-- AWS Provider ~> 5.92
-- AWS CLI configured with valid credentials
-- Personal AWS account for testing
-
-## Additional Documentation
-- `personal_testing.md` - Step-by-step guide for personal AWS testing
-- `environments/dev.tfvars` - Development configuration with placeholder values
-
-## Additional Documentation
-- `personal_testing.md` - Step-by-step guide for personal AWS testing
-- `environments/dev.tfvars` - Development configuration with placeholder values
-
-
-## GitHub Actions CI/CD Pipeline
-
-### Workflow Overview
-The project includes automated CI/CD with GitHub Actions for dev and prod deployments.
-
-**Workflow Triggers:**
-- Push to `main` branch - Runs all jobs (check, plan dev, apply dev, plan prod, apply prod)
-- Pull request to `main` - Runs check and plan jobs only (no apply)
-- Feature branches - No workflow triggers
-
-**Jobs:**
-1. `terraform-check` - Format validation and syntax check
-2. `terraform-plan-dev` - Plans dev changes, posts to PR comment
-3. `terraform-apply-dev` - Auto-applies dev on main push
-4. `terraform-plan-prod` - Plans prod changes after dev apply
-5. `terraform-apply-prod` - Requires manual approval before applying prod
-
-### Authentication
-- Uses GitHub OIDC provider for AWS authentication (no static keys)
-- IAM role: `qb-financial-warehouse-github-actions-role`
-- Restricted to specific GitHub repo and branch
-
-### Required GitHub Secrets
-- `AWS_ACCOUNT_ID` - AWS account ID
-- `AWS_REGION` - AWS region (default: us-east-1)
-
-### Required GitHub Environment
-- `production` - Manual approval required before prod apply
-
-## Migrating to Client Repository
-
-When deploying to a client's GitHub repo and AWS account, update these locations:
-
-### 1. GitHub Actions Workflow (`.github/workflows/terraform.yml`)
-```yaml
-# Update AWS account ID in role-to-assume
-role-to-assume: arn:aws:iam::CLIENT_ACCOUNT_ID:role/qb-financial-warehouse-github-actions-role
-
-# Update AWS region if different
-aws-region: us-east-1  # or client's region
-
-# Update S3 bucket names for backend
--backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state"
--backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state"
-
-# Update DynamoDB table name if different
--backend-config="dynamodb_table=qb-financial-warehouse-terraform-locks"
-```
-
-### 2. IAM Module (`modules/iam/github_actions.tf`)
-```hcl
-# Update GitHub repo
-variable "github_repo" {
-  default = "client-org/client-repo"  # Change to client repo
-}
-
-# Update GitHub branch if not main
-variable "github_branch" {
-  default = "main"  # or client's branch
-}
-
-# Update AWS account ID in trust policy
-grantee_principal = "arn:aws:iam::CLIENT_ACCOUNT_ID:user/cloud-admin-damian"
-```
-
-### 3. Environment Variables (`environments/dev.tfvars`, `environments/prod.tfvars`)
-```hcl
-alert_email       = "client-email@example.com"
-qb_api_secret_arn = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
-github_repo       = "client-org/client-repo"
-github_branch     = "main"  # or client's branch
-```
-
-### 4. GitHub Actions Secrets (Repository Settings)
-- `AWS_ACCOUNT_ID` - Set to client's AWS account ID
-- `AWS_REGION` - Set to client's AWS region
-
-### 5. AWS Manual Setup (Client Account)
-Create these resources manually in the client's AWS account:
+### 1. Create S3 State Buckets
 
 ```bash
-# Create dev state bucket
-aws s3 mb s3://qb-financial-warehouse-dev-qb-terraform-state --region us-east-1
-aws s3api put-bucket-versioning --bucket qb-financial-warehouse-dev-qb-terraform-state --versioning-configuration Status=Enabled --region us-east-1
+# Dev state bucket
+aws s3api create-bucket \
+  --bucket qb-financial-warehouse-dev-qb-terraform-state \
+  --region us-east-1
 
-# Create prod state bucket
-aws s3 mb s3://qb-financial-warehouse-prod-qb-terraform-state --region us-east-1
-aws s3api put-bucket-versioning --bucket qb-financial-warehouse-prod-qb-terraform-state --versioning-configuration Status=Enabled --region us-east-1
+aws s3api put-bucket-versioning \
+  --bucket qb-financial-warehouse-dev-qb-terraform-state \
+  --versioning-configuration Status=Enabled
 
-# Create DynamoDB lock table (shared between dev and prod)
+aws s3api put-bucket-encryption \
+  --bucket qb-financial-warehouse-dev-qb-terraform-state \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+# Prod state bucket
+aws s3api create-bucket \
+  --bucket qb-financial-warehouse-prod-qb-terraform-state \
+  --region us-east-1
+
+aws s3api put-bucket-versioning \
+  --bucket qb-financial-warehouse-prod-qb-terraform-state \
+  --versioning-configuration Status=Enabled
+
+aws s3api put-bucket-encryption \
+  --bucket qb-financial-warehouse-prod-qb-terraform-state \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+```
+
+### 2. Create Separate DynamoDB Lock Tables
+
+Dev and prod use separate lock tables to prevent conflicts when running simultaneously.
+
+```bash
+# Dev lock table
 aws dynamodb create-table \
-  --table-name qb-financial-warehouse-terraform-locks \
+  --table-name qb-financial-warehouse-dev-terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region us-east-1
+
+# Prod lock table
+aws dynamodb create-table \
+  --table-name qb-financial-warehouse-prod-terraform-locks \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \
   --region us-east-1
 ```
 
-### 6. GitHub OIDC Provider (Client Account)
-If not already configured, create the OIDC provider:
+### 3. Create GitHub OIDC Provider (if not already exists)
 
 ```bash
 aws iam create-open-id-connect-provider \
@@ -444,18 +230,252 @@ aws iam create-open-id-connect-provider \
   --region us-east-1
 ```
 
-### 7. IAM Role for GitHub Actions (Client Account)
-The role `qb-financial-warehouse-github-actions-role` is created by Terraform. Ensure it exists and has proper trust policy for the client's GitHub repo.
+If it already exists you'll get an `EntityAlreadyExists` error — that's fine, import it into Terraform state instead:
+
+```bash
+terraform import module.iam.aws_iam_openid_connect_provider.github \
+  arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
+```
+
+### 4. Bootstrap IAM Module (OIDC Role)
+
+The GitHub Actions OIDC role must exist before the pipeline can authenticate. Bootstrap it locally once:
+
+```bash
+terraform apply -var-file="environments/dev.tfvars" -target=module.iam
+```
+
+### 5. Add GitHub Secrets
+
+Go to GitHub repo → Settings → Secrets and variables → Actions:
+- `AWS_ACCOUNT_ID` — your AWS account ID
+- `AWS_REGION` — `us-east-1`
+
+### 6. Set Up Production Environment in GitHub
+
+Go to GitHub repo → Settings → Environments → New environment:
+- Name: `production`
+- Enable **Required reviewers** and add yourself
+- Save
+
+---
+
+## Usage
+
+### Initialize Terraform
+
+```bash
+# Dev
+terraform init \
+  -backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=qb-financial-warehouse-dev-terraform-locks" \
+  -backend-config="encrypt=true"
+
+# Prod
+terraform init \
+  -backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks" \
+  -backend-config="encrypt=true"
+```
+
+### Plan and Apply
+
+```bash
+terraform plan -var-file="environments/dev.tfvars"
+terraform apply -var-file="environments/dev.tfvars"
+```
+
+### Switch Between Environments Locally
+
+```bash
+terraform init -reconfigure \
+  -backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks" \
+  -backend-config="encrypt=true"
+```
+
+---
+
+## Destroying Infrastructure
+
+### Important — Disable RDS Deletion Protection Before Destroying Prod
+
+Prod RDS has deletion protection enabled. You must disable it first or destroy will fail:
+
+```bash
+aws rds modify-db-instance \
+  --db-instance-identifier qb-financial-warehouse-prod-postgres \
+  --no-deletion-protection \
+  --apply-immediately \
+  --region us-east-1
+```
+
+Wait 2 minutes then verify:
+
+```bash
+aws rds describe-db-instances \
+  --db-instance-identifier qb-financial-warehouse-prod-postgres \
+  --region us-east-1 \
+  --query "DBInstances[*].{ID:DBInstanceIdentifier,DeletionProtection:DeletionProtection}"
+```
+
+### Destroy Dev
+
+```bash
+terraform init -reconfigure \
+  -backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=qb-financial-warehouse-dev-terraform-locks" \
+  -backend-config="encrypt=true"
+
+terraform destroy -var-file="environments/dev.tfvars"
+```
+
+### Destroy Prod
+
+```bash
+terraform init -reconfigure \
+  -backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks" \
+  -backend-config="encrypt=true"
+
+terraform destroy -var-file="environments/prod.tfvars"
+```
+
+### Notes on Destroy
+- Always destroy dev before prod to avoid DynamoDB lock conflicts
+- If destroy fails due to RDS timing, rerun `terraform destroy` — it picks up where it left off
+- Lambda ENIs can take 20-40 minutes to release after destroy — wait before manually cleaning up VPC resources
+- If you get an orphaned lock error, force unlock: `terraform force-unlock LOCK_ID`
+
+---
+
+## CI/CD Pipeline
+
+### Workflow Overview
+
+**Triggers:**
+- Push to `main` — runs all jobs (check, plan dev, apply dev, plan prod, apply prod)
+- Pull request to `main` — runs check and plan only (no apply)
+
+**Jobs:**
+
+```
+terraform-check (fmt + validate)
+     ↓
+terraform-plan-dev (posts plan to PR comment)
+     ↓
+terraform-apply-dev (auto on merge to main)
+     ↓
+terraform-plan-prod (auto after dev apply)
+     ↓
+⏸ Manual approval required (production environment)
+     ↓
+terraform-apply-prod
+```
+
+### Authentication
+- GitHub OIDC — no static AWS credentials stored anywhere
+- IAM role: `qb-financial-warehouse-github-actions-role`
+- Restricted to repo `damianleng/terraform-qb` on `main` branch only
+
+### Manual Destroy via GitHub Actions
+Go to Actions → Terraform Destroy → Run workflow:
+- Select environment (`dev` or `prod`)
+- Type `DESTROY` to confirm
+- Click Run
+
+---
+
+## Migrating to Client Repository
+
+When deploying to a client's AWS account and GitHub repo, update these locations:
+
+### 1. GitHub Actions Workflow (`.github/workflows/terraform.yml`)
+
+```yaml
+# Update AWS account ID
+role-to-assume: arn:aws:iam::CLIENT_ACCOUNT_ID:role/qb-financial-warehouse-github-actions-role
+
+# Update backend bucket names
+-backend-config="bucket=qb-financial-warehouse-dev-qb-terraform-state"
+-backend-config="bucket=qb-financial-warehouse-prod-qb-terraform-state"
+
+# Dev jobs
+-backend-config="dynamodb_table=qb-financial-warehouse-dev-terraform-locks"
+
+# Prod jobs
+-backend-config="dynamodb_table=qb-financial-warehouse-prod-terraform-locks"
+```
+
+### 2. IAM Module (`modules/iam/github_actions.tf`)
+
+```hcl
+variable "github_repo" {
+  default = "client-org/client-repo"
+}
+
+variable "github_branch" {
+  default = "main"
+}
+```
+
+### 3. Environment Variables (`environments/*.tfvars`)
+
+```hcl
+alert_email       = "client-email@example.com"
+qb_api_secret_arn = "arn:aws:secretsmanager:us-east-1:CLIENT_ACCOUNT_ID:secret:client-qb-api"
+github_repo       = "client-org/client-repo"
+```
+
+### 4. GitHub Secrets (Client Repo Settings)
+- `AWS_ACCOUNT_ID` — client AWS account ID
+- `AWS_REGION` — client AWS region
+
+### 5. Repeat Manual Setup Steps
+Run all steps in the Prerequisites section above using the client's AWS account credentials.
 
 ### Summary of Changes
+
 | Item | Location | Change |
-|------|----------|--------|
+|---|---|---|
 | AWS Account ID | `.github/workflows/terraform.yml`, `modules/iam/github_actions.tf` | Update to client account |
 | AWS Region | `.github/workflows/terraform.yml`, `environments/*.tfvars` | Update if different |
 | GitHub Repo | `modules/iam/github_actions.tf`, `environments/*.tfvars` | Update to client repo |
-| GitHub Branch | `modules/iam/github_actions.tf`, `environments/*.tfvars` | Update if not main |
 | Email | `environments/*.tfvars` | Update to client email |
-| Secrets | GitHub repo settings | Update AWS_ACCOUNT_ID and AWS_REGION |
-| Backend Infrastructure | AWS account | Create S3 buckets and DynamoDB table |
+| GitHub Secrets | GitHub repo settings | Update `AWS_ACCOUNT_ID` and `AWS_REGION` |
+| Backend Infrastructure | AWS account | Create S3 buckets and DynamoDB tables |
 
-All other code remains unchanged.
+---
+
+## Requirements
+
+- Terraform >= 1.2
+- AWS Provider ~> 5.0
+- AWS CLI configured with valid credentials
+- Personal AWS account for testing
+
+## Root Variables
+
+| Variable | Description | Required |
+|---|---|---|
+| `environment` | Environment name (dev or prod) | Yes |
+| `project` | Project name | Yes |
+| `aws_region` | AWS region | No (default: us-east-1) |
+| `alert_email` | Email for ETL failure alerts | Yes |
+| `qb_api_secret_arn` | QuickBooks API credentials secret ARN | Yes |
+
+## Additional Documentation
+
+- `personal_testing.md` — Step-by-step guide for personal AWS testing
+- `environments/dev.tfvars.example` — Dev configuration template
+- `environments/prod.tfvars.example` — Prod configuration template

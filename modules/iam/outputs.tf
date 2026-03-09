@@ -13,7 +13,7 @@ output "access_analyzer_arn" {
   value       = var.enable_access_analyzer ? aws_accessanalyzer_analyzer.main[0].arn : null
 }
 
-output "github_actions_role_arn" {
-  description = "ARN of the GitHub Actions IAM role"
-  value       = aws_iam_role.github_actions.arn
+output "mfa_group_name" {
+  description = "Name of the IAM group with MFA enforcement"
+  value       = aws_iam_group.mfa_required.name
 }

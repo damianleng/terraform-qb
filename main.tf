@@ -49,6 +49,4 @@ module "iam" {
   environment               = var.environment
   project                   = var.project
   cloudtrail_s3_bucket_name = module.s3.logs_bucket_name
-  github_repo               = var.github_repo
-  github_branch             = var.github_branch
 }
