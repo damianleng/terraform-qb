@@ -88,7 +88,7 @@ This project manages AWS infrastructure for the QuickBooks Financial Data Wareho
 | Storage | 20GB (autoscale to 100GB) | 100GB (autoscale to 100GB) |
 | Multi-AZ | false | true |
 | Monitoring Interval | 60s | 30s |
-| Backup Retention | 7 days | 90 days |
+| Backup Retention | 7 days | 30 days |
 | Deletion Protection | false | true |
 | Final Snapshot | Skipped | Taken |
 
