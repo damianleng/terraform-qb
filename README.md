@@ -444,6 +444,110 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 
 ---
 
+## Checking for Orphaned Resources
+
+After a `terraform destroy`, run these commands to verify no resources were left behind. Any resources that still exist need to be either manually deleted or imported into Terraform state before the next `terraform apply`.
+
+### Run All Checks
+
+```bash
+echo "=== RDS ===" && \
+aws rds describe-db-instances --region us-east-1 \
+  --query "DBInstances[*].{ID:DBInstanceIdentifier,Status:DBInstanceStatus}"
+
+echo "=== VPC ===" && \
+aws ec2 describe-vpcs --region us-east-1 \
+  --filters "Name=tag:Project,Values=qb-financial-warehouse" \
+  --query "Vpcs[*].{ID:VpcId,Name:Tags[?Key=='Name']|[0].Value}"
+
+echo "=== Lambda ===" && \
+aws lambda list-functions --region us-east-1 \
+  --query "Functions[?starts_with(FunctionName,'qb-financial-warehouse')].FunctionName"
+
+echo "=== S3 ===" && \
+aws s3 ls | grep qb-financial-warehouse
+
+echo "=== Step Functions ===" && \
+aws stepfunctions list-state-machines --region us-east-1 \
+  --query "stateMachines[?starts_with(name,'qb-financial-warehouse')].name"
+
+echo "=== GuardDuty ===" && \
+aws guardduty list-detectors --region us-east-1
+
+echo "=== CloudTrail ===" && \
+aws cloudtrail describe-trails --region us-east-1 \
+  --query "trailList[?starts_with(Name,'qb-financial-warehouse')].Name"
+
+echo "=== KMS Keys ===" && \
+aws kms list-aliases --region us-east-1 \
+  --query "Aliases[?starts_with(AliasName,'alias/qb-financial-warehouse')].AliasName"
+
+echo "=== IAM Roles ===" && \
+aws iam list-roles \
+  --query "Roles[?starts_with(RoleName,'qb-financial-warehouse')].RoleName"
+```
+
+### Expected State After Destroy
+
+After a successful destroy the only resources that should remain are:
+
+| Resource | Expected | Reason |
+|---|---|---|
+| S3 state buckets (`*-terraform-state`) | Remain | Created manually — not managed by Terraform |
+| IAM role `qb-financial-warehouse-github-actions-role` | Remains | Managed by `bootstrap/` — survives destroy intentionally |
+| GuardDuty detector | Empty list | Should be fully destroyed |
+| Everything else | Empty | Should be fully destroyed |
+
+### Importing Orphaned Resources
+
+If a resource still exists after destroy, import it before the next apply to avoid `EntityAlreadyExists` errors.
+
+**GuardDuty detector:**
+```bash
+# Get detector ID
+aws guardduty list-detectors --region us-east-1
+
+terraform import 'module.iam.aws_guardduty_detector.main[0]' DETECTOR_ID
+```
+
+**AWS Config recorder:**
+```bash
+# Get recorder name
+aws configservice describe-configuration-recorders --region us-east-1
+
+terraform import 'module.iam.aws_config_configuration_recorder.main[0]' RECORDER_NAME
+```
+
+**AWS Config delivery channel:**
+```bash
+# Get delivery channel name
+aws configservice describe-delivery-channels --region us-east-1
+
+terraform import 'module.iam.aws_config_delivery_channel.main[0]' CHANNEL_NAME
+```
+
+> **Note:** Always use single quotes around resource addresses containing square brackets when running import commands in zsh — e.g. `'module.iam.aws_guardduty_detector.main[0]'` — otherwise zsh will throw `no matches found`.
+
+### Fixing State Lock After Cancelled Run
+
+If a GitHub Actions workflow was cancelled mid-run, the state lock may not be released. Force unlock with:
+
+```bash
+terraform force-unlock LOCK_ID
+```
+
+The lock ID is shown in the error message when you try to run plan or apply. If the lock was created by a local run, check the DynamoDB table directly:
+
+```bash
+# Dev
+aws dynamodb scan --table-name qb-financial-warehouse-dev-terraform-locks --region us-east-1
+
+# Prod
+aws dynamodb scan --table-name qb-financial-warehouse-prod-terraform-locks --region us-east-1
+```
+
+---
+
 ## Requirements
 
 - Terraform >= 1.2
@@ -467,4 +571,4 @@ Run all steps in the Prerequisites section above using the client's AWS account 
 - `CLAUDE.md` — Full project context for AI-assisted development
 - `personal_testing.md` — Step-by-step guide for personal AWS testing
 - `environments/dev.tfvars.example` — Dev configuration template
-- `environments/prod.tfvars.example` — Prod configuration template 
+- `environments/prod.tfvars.example` — Prod configuration template
